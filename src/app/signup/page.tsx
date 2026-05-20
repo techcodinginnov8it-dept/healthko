@@ -25,6 +25,7 @@ export default function SignUpPage() {
   const [phone, setPhone] = useState("");
   const [dob, setDob] = useState("");
   const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
   const [hipaaConsent, setHipaaConsent] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -36,16 +37,51 @@ export default function SignUpPage() {
   const digitsOnly = phone.replace(/\D/g, "");
   const isPhoneInvalid = phone.length > 0 && !activeCountry.regex.test(digitsOnly);
 
+  // Password validation constraints
+  const hasUppercase = /[A-Z]/.test(password);
+  const hasNumber = /\d/.test(password);
+  const hasSymbol = /[^A-Za-z0-9]/.test(password);
+  const hasMinLen = password.length >= 8;
+  const isPasswordValid = hasUppercase && hasNumber && hasSymbol && hasMinLen && password.length <= 12;
+  const isPasswordMatch = password === confirmPassword;
+
+  // Strength score calculation
+  let score = 0;
+  if (password.length > 0) {
+    if (hasMinLen) score++;
+    if (hasUppercase) score++;
+    if (hasNumber) score++;
+    if (hasSymbol) score++;
+  }
+
+  let strengthLabel = "Weak";
+  let strengthColor = "text-brand-red";
+  let strengthColorBg = "bg-brand-red";
+  let strengthPercent = 33;
+
+  if (score === 3) {
+    strengthLabel = "Medium";
+    strengthColor = "text-amber-500";
+    strengthColorBg = "bg-amber-500";
+    strengthPercent = 66;
+  } else if (score === 4) {
+    strengthLabel = "Strong";
+    strengthColor = "text-brand-teal";
+    strengthColorBg = "bg-brand-teal";
+    strengthPercent = 100;
+  }
+
   const isSubmitDisabled =
     loading ||
     !hipaaConsent ||
     isPhoneInvalid ||
+    !isPasswordValid ||
+    !isPasswordMatch ||
     !firstName ||
     !lastName ||
     !phone ||
     !email ||
-    !dob ||
-    !password;
+    !dob;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -290,32 +326,39 @@ export default function SignUpPage() {
                 </div>
               </div>
 
-              {/* Date of Birth & Password */}
+              {/* Date of Birth */}
+              <div>
+                <label className="block text-[10px] font-black text-slate-400 uppercase mb-1 tracking-wider">
+                  Date of Birth
+                </label>
+                <input
+                  type="date"
+                  required
+                  value={dob}
+                  onChange={(e) => setDob(e.target.value)}
+                  className="w-full px-4 py-2.5 rounded-xl border border-slate-200 text-xs sm:text-sm text-slate-850 focus:outline-none focus:border-brand-teal focus:ring-1 focus:ring-brand-teal/20"
+                />
+              </div>
+
+              {/* Password & Confirm Password Grid */}
               <div className="grid sm:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-[10px] font-black text-slate-400 uppercase mb-1 tracking-wider">
-                    Date of Birth
-                  </label>
-                  <input
-                    type="date"
-                    required
-                    value={dob}
-                    onChange={(e) => setDob(e.target.value)}
-                    className="w-full px-4 py-2.5 rounded-xl border border-slate-200 text-xs sm:text-sm text-slate-850 focus:outline-none focus:border-brand-teal focus:ring-1 focus:ring-brand-teal/20 animate-none"
-                  />
-                </div>
-                <div>
-                  <label className="block text-[10px] font-black text-slate-400 uppercase mb-1 tracking-wider">
-                    Password
+                    Password (Max 12 chars)
                   </label>
                   <div className="relative">
                     <input
                       type={showPassword ? "text" : "password"}
                       required
+                      maxLength={12}
                       value={password}
                       onChange={(e) => setPassword(e.target.value)}
                       placeholder="••••••••"
-                      className="w-full px-4 py-2.5 pr-10 rounded-xl border border-slate-200 text-xs sm:text-sm text-slate-850 focus:outline-none focus:border-brand-teal focus:ring-1 focus:ring-brand-teal/20"
+                      className={`w-full px-4 py-2.5 pr-10 rounded-xl border text-xs sm:text-sm focus:outline-none focus:ring-1 ${
+                        password && !isPasswordValid
+                          ? "border-brand-red focus:border-brand-red focus:ring-brand-red/20 text-brand-red"
+                          : "border-slate-200 focus:border-brand-teal focus:ring-brand-teal/20 text-slate-850"
+                      }`}
                     />
                     <button
                       type="button"
@@ -334,6 +377,66 @@ export default function SignUpPage() {
                       )}
                     </button>
                   </div>
+
+                  {/* Strength & Restrictions */}
+                  {password && (
+                    <div className="mt-2 space-y-1.5 animate-slide-up">
+                      <div className="flex items-center justify-between text-[10px] font-bold text-slate-500 mb-1">
+                        <span>Strength: <span className={strengthColor}>{strengthLabel}</span></span>
+                        <span>{password.length}/12 chars</span>
+                      </div>
+                      <div className="h-1.5 w-full bg-slate-100 rounded-full overflow-hidden flex space-x-0.5">
+                        <div className={`h-full transition-all duration-300 ${strengthPercent >= 33 ? strengthColorBg : "bg-transparent"}`} style={{ width: "33.33%" }} />
+                        <div className={`h-full transition-all duration-300 ${strengthPercent >= 66 ? strengthColorBg : "bg-transparent"}`} style={{ width: "33.33%" }} />
+                        <div className={`h-full transition-all duration-300 ${strengthPercent === 100 ? strengthColorBg : "bg-transparent"}`} style={{ width: "33.33%" }} />
+                      </div>
+                      <div className="grid grid-cols-2 gap-x-2 gap-y-0.5 text-[9px] font-bold">
+                        <span className={`flex items-center space-x-1 ${hasUppercase ? "text-emerald-600" : "text-slate-400"}`}>
+                          <span>{hasUppercase ? "✓" : "○"}</span> <span>Uppercase</span>
+                        </span>
+                        <span className={`flex items-center space-x-1 ${hasNumber ? "text-emerald-600" : "text-slate-400"}`}>
+                          <span>{hasNumber ? "✓" : "○"}</span> <span>Number</span>
+                        </span>
+                        <span className={`flex items-center space-x-1 ${hasSymbol ? "text-emerald-600" : "text-slate-400"}`}>
+                          <span>{hasSymbol ? "✓" : "○"}</span> <span>Symbol</span>
+                        </span>
+                        <span className={`flex items-center space-x-1 ${hasMinLen ? "text-emerald-600" : "text-slate-400"}`}>
+                          <span>{hasMinLen ? "✓" : "○"}</span> <span>Min 8 chars</span>
+                        </span>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                <div>
+                  <label className="block text-[10px] font-black text-slate-400 uppercase mb-1 tracking-wider">
+                    Retype Password
+                  </label>
+                  <div className="relative">
+                    <input
+                      type={showPassword ? "text" : "password"}
+                      required
+                      maxLength={12}
+                      value={confirmPassword}
+                      onChange={(e) => setConfirmPassword(e.target.value)}
+                      placeholder="••••••••"
+                      className={`w-full px-4 py-2.5 pr-10 rounded-xl border text-xs sm:text-sm focus:outline-none focus:ring-1 ${
+                        confirmPassword && !isPasswordMatch
+                          ? "border-brand-red focus:border-brand-red focus:ring-brand-red/20 text-brand-red"
+                          : "border-slate-200 focus:border-brand-teal focus:ring-brand-teal/20 text-slate-850"
+                      }`}
+                    />
+                  </div>
+                  {confirmPassword && !isPasswordMatch && (
+                    <span className="text-[10px] font-bold text-brand-red mt-1.5 block animate-slide-up">
+                      Passwords do not match
+                    </span>
+                  )}
+                  {confirmPassword && isPasswordMatch && isPasswordValid && (
+                    <span className="text-[10px] font-bold text-emerald-600 mt-1.5 block animate-slide-up">
+                      ✓ Passwords match
+                    </span>
+                  )}
                 </div>
               </div>
 
