@@ -19,6 +19,14 @@ function generateToken(): string {
   return randomBytes(32).toString("hex");
 }
 
+function getResetErrorMessage(error: unknown, fallback: string) {
+  if (error instanceof Error && !error.message.includes("Can't reach database server")) {
+    return error.message;
+  }
+
+  return fallback;
+}
+
 // ── 1. Request password reset (forgot-password page) ─────────────────────────
 export async function requestPasswordReset(data: {
   email: string;
@@ -143,9 +151,15 @@ export async function requestPasswordReset(data: {
     });
 
     return { success: true };
-  } catch (err: any) {
+  } catch (err: unknown) {
     console.error("[requestPasswordReset]", err);
-    return { success: false, error: err.message || "Failed to send reset email." };
+    return {
+      success: false,
+      error: getResetErrorMessage(
+        err,
+        "Password reset is temporarily unavailable. Please try again later."
+      ),
+    };
   }
 }
 
@@ -165,9 +179,15 @@ export async function verifyResetOtp(data: {
     if (record.otp !== otp) return { success: false, error: "Incorrect verification code. Please check your email." };
 
     return { success: true, email: record.email, userType: record.userType };
-  } catch (err: any) {
+  } catch (err: unknown) {
     console.error("[verifyResetOtp]", err);
-    return { success: false, error: err.message || "Verification failed." };
+    return {
+      success: false,
+      error: getResetErrorMessage(
+        err,
+        "We could not verify this reset code right now. Please try again later."
+      ),
+    };
   }
 }
 
@@ -212,8 +232,14 @@ export async function applyNewPassword(data: {
     });
 
     return { success: true };
-  } catch (err: any) {
+  } catch (err: unknown) {
     console.error("[applyNewPassword]", err);
-    return { success: false, error: err.message || "Failed to update password." };
+    return {
+      success: false,
+      error: getResetErrorMessage(
+        err,
+        "We could not update your password right now. Please try again later."
+      ),
+    };
   }
 }
