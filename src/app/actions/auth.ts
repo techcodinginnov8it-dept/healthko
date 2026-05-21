@@ -1,6 +1,6 @@
 "use server";
 
-import { Resend } from "resend";
+import { createClient as createSupabaseClient } from "@supabase/supabase-js";
 import { prisma } from "@/lib/prisma";
 import { clearPatientSession, createPatientSession } from "@/lib/auth/patient-session";
 import { clearDoctorSession, createDoctorSession } from "@/lib/auth/doctor-session";
@@ -47,15 +47,10 @@ async function ensureFeaturedDoctorsSeeded() {
         await prisma.doctor.create({ data: doc });
       }
     }
-  } catch (error) {
+  } catch {
     console.warn("ensureFeaturedDoctorsSeeded failed, database might be offline. MockDB seeds are already active.");
   }
 }
-
-// Graceful Resend Client initialization
-const resendKey = process.env.RESEND_API_KEY || "re_dummykey";
-const resend = new Resend(resendKey);
-const OTP_TTL_MINUTES = 10;
 
 type PatientSignupPayload = {
   firstName: string;
@@ -93,91 +88,46 @@ type DoctorLoginPayload = {
   securityKey?: string;
 };
 
-function getErrorMessage(error: unknown, fallback: string) {
-  return error instanceof Error ? error.message : fallback;
+function createSupabaseAuthClient() {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const key = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
+
+  if (!url || !key || url.includes("your-project-ref")) {
+    throw new Error("Supabase Auth is not configured. Set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY.");
+  }
+
+  return createSupabaseClient(url, key, {
+    auth: {
+      autoRefreshToken: false,
+      persistSession: false,
+    },
+  });
 }
 
-function generateOtp() {
-  return String(Math.floor(100000 + Math.random() * 900000));
-}
-
-async function sendPatientOtpEmail({
+async function sendPatientSupabaseOtp({
   email,
-  otp,
   purpose,
   firstName,
 }: {
   email: string;
-  otp: string;
   purpose: OtpPurpose;
   firstName?: string;
 }) {
-  const actionLabel = purpose === "signup_verify" ? "Verify Your Email" : "Confirm Your Sign In";
-  const intro =
-    purpose === "signup_verify"
-      ? "Use the one-time passcode below to activate your HealthKo patient account."
-      : "Use the one-time passcode below to finish signing in to your HealthKo patient dashboard.";
+  const supabase = createSupabaseAuthClient();
+  const { error } = await supabase.auth.signInWithOtp({
+    email,
+    options: {
+      shouldCreateUser: true,
+      emailRedirectTo: `${process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000"}/signin`,
+      data: {
+        first_name: firstName,
+        otp_purpose: purpose,
+      },
+    },
+  });
 
-  try {
-    if (!process.env.RESEND_API_KEY || process.env.RESEND_API_KEY.startsWith("re_your")) {
-      console.log(`\n======================================================`);
-      console.log(`[SIMULATED EMAIL] To: ${email}`);
-      console.log(`[SIMULATED EMAIL] Action: ${actionLabel}`);
-      console.log(`[SIMULATED EMAIL] OTP Verification Code: ${otp}`);
-      console.log(`======================================================\n`);
-      return;
-    }
-
-    await resend.emails.send({
-      from: "HealthKo <onboarding@resend.dev>",
-      to: email,
-      subject: `HealthKo - ${actionLabel}`,
-      html: `
-        <!DOCTYPE html>
-        <html>
-          <body style="margin:0;padding:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#0f172a;color:#f1f5f9;">
-            <table width="100%" cellpadding="0" cellspacing="0" style="background:#0f172a;padding:40px 20px;">
-              <tr><td align="center">
-                <table width="520" cellpadding="0" cellspacing="0" style="background:#1e293b;border-radius:16px;overflow:hidden;border:1px solid #334155;">
-                  <tr>
-                    <td style="background:#0f172a;padding:24px 32px;border-bottom:1px solid #1e293b;">
-                      <span style="font-size:22px;font-weight:900;letter-spacing:-0.5px;">
-                        <span style="color:#ef4444;">H</span><span style="color:#f8fafc;">ealth</span><span style="color:#14b8a6;">K</span><span style="color:#f8fafc;">o</span>
-                      </span>
-                    </td>
-                  </tr>
-                  <tr>
-                    <td style="padding:32px;">
-                      <p style="margin:0 0 8px;font-size:13px;font-weight:700;color:#14b8a6;text-transform:uppercase;letter-spacing:2px;">
-                        Patient Portal Access
-                      </p>
-                      <h1 style="margin:0 0 16px;font-size:22px;font-weight:900;color:#f8fafc;">
-                        ${actionLabel}
-                      </h1>
-                      <p style="margin:0 0 24px;font-size:14px;color:#94a3b8;line-height:1.6;">
-                        ${firstName ? `Hi ${firstName}, ` : ""}${intro}
-                      </p>
-                      <table width="100%" cellpadding="0" cellspacing="0" style="background:#0f172a;border:1px solid #334155;border-radius:12px;margin-bottom:24px;">
-                        <tr><td style="padding:20px;text-align:center;">
-                          <p style="margin:0 0 8px;font-size:11px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:2px;">Your Verification OTP</p>
-                          <p style="margin:0;font-size:36px;font-weight:900;letter-spacing:12px;color:#14b8a6;font-family:monospace;">${otp}</p>
-                          <p style="margin:8px 0 0;font-size:11px;color:#475569;">Valid for ${OTP_TTL_MINUTES} minutes</p>
-                        </td></tr>
-                      </table>
-                    </td>
-                  </tr>
-                </table>
-              </td></tr>
-            </table>
-          </body>
-        </html>
-      `,
-    });
-  } catch (error) {
-    console.warn("Failed to dispatch Resend email, logging code instead:", error);
-    console.log(`\n======================================================`);
-    console.log(`[EMAIL DISPATCH FAILURE] Code logged: ${otp}`);
-    console.log(`======================================================\n`);
+  if (error) {
+    throw new Error(error.message || "Supabase could not send the verification code.");
   }
 }
 
@@ -190,29 +140,28 @@ async function issueEmailOtp({
   purpose: OtpPurpose;
   firstName?: string;
 }) {
-  await prisma.emailOtp.updateMany({
-    where: { email, purpose, used: false },
-    data: { used: true },
-  });
-
-  const otp = generateOtp();
-  const expiresAt = new Date(Date.now() + OTP_TTL_MINUTES * 60 * 1000);
-
-  await prisma.emailOtp.create({
-    data: {
-      email,
-      otp,
-      purpose,
-      expiresAt,
-    },
-  });
-
-  await sendPatientOtpEmail({
+  await sendPatientSupabaseOtp({
     email,
-    otp,
     purpose,
     firstName,
   });
+}
+
+async function verifySupabaseEmailOtp(email: string, otp: string) {
+  if (otp === "123456" && process.env.NODE_ENV !== "production") {
+    return;
+  }
+
+  const supabase = createSupabaseAuthClient();
+  const { error } = await supabase.auth.verifyOtp({
+    email,
+    token: otp,
+    type: "email",
+  });
+
+  if (error) {
+    throw new Error(error.message || "Incorrect verification code.");
+  }
 }
 
 /**
@@ -293,13 +242,8 @@ export async function requestPatientSignupOtp(data: PatientSignupPayload): Promi
         emailVerified: false,
       });
 
-      const otp = generateOtp();
-      const expiresAt = new Date(Date.now() + OTP_TTL_MINUTES * 60 * 1000);
-      mockDb.createEmailOtp(patient.email, otp, "signup_verify", expiresAt);
-
-      await sendPatientOtpEmail({
+      await issueEmailOtp({
         email: patient.email,
-        otp,
         purpose: "signup_verify",
         firstName: patient.firstName,
       });
@@ -309,7 +253,7 @@ export async function requestPatientSignupOtp(data: PatientSignupPayload): Promi
         requiresOtp: true,
         purpose: "signup_verify",
         email: patient.email,
-        message: `[Dev Fallback] Account created in mock storage. Verification code is ${otp}.`,
+        message: "We sent a 6-digit code to your email to finish setting up your patient account.",
       };
     } catch (mockErr) {
       console.error("Signup Mock DB critical failure:", mockErr);
@@ -340,22 +284,7 @@ export async function verifyPatientSignupOtp(data: {
       return { success: false, error: "We could not find that patient account." };
     }
 
-    // Support master code bypass '123456'
-    if (otp !== "123456") {
-      const record = await prisma.emailOtp.findFirst({
-        where: { email, purpose: "signup_verify", used: false },
-        orderBy: { createdAt: "desc" },
-      });
-
-      if (!record || new Date() > record.expiresAt || record.otp !== otp) {
-        return { success: false, error: "Incorrect verification code." };
-      }
-
-      await prisma.emailOtp.update({
-        where: { id: record.id },
-        data: { used: true },
-      });
-    }
+    await verifySupabaseEmailOtp(email, otp);
 
     await prisma.patient.update({
       where: { email },
@@ -382,14 +311,7 @@ export async function verifyPatientSignupOtp(data: {
         return { success: false, error: "We could not find that patient account." };
       }
 
-      // Check OTP
-      if (otp !== "123456") {
-        const record = mockDb.findLatestOtp(email, "signup_verify");
-        if (!record || new Date() > new Date(record.expiresAt) || record.otp !== otp) {
-          return { success: false, error: "Incorrect verification code." };
-        }
-        mockDb.markOtpAsUsed(record.id);
-      }
+      await verifySupabaseEmailOtp(email, otp);
 
       mockDb.updatePatient(email, { emailVerified: true });
 
@@ -468,13 +390,8 @@ export async function requestPatientLoginOtp(data: PatientLoginPayload): Promise
 
       const purpose: OtpPurpose = patient.emailVerified ? "login_verify" : "signup_verify";
 
-      const otp = generateOtp();
-      const expiresAt = new Date(Date.now() + OTP_TTL_MINUTES * 60 * 1000);
-      mockDb.createEmailOtp(patient.email, otp, purpose, expiresAt);
-
-      await sendPatientOtpEmail({
+      await issueEmailOtp({
         email: patient.email,
-        otp,
         purpose,
         firstName: patient.firstName,
       });
@@ -484,7 +401,9 @@ export async function requestPatientLoginOtp(data: PatientLoginPayload): Promise
         requiresOtp: true,
         purpose,
         email: patient.email,
-        message: `[Dev Fallback] Authenticated. Verification code is ${otp}.`,
+        message: patient.emailVerified
+          ? "We sent a 6-digit code to your email to confirm this sign-in."
+          : "Your account still needs email verification. We sent you a fresh 6-digit code.",
       };
     } catch (mockErr) {
       console.error("Login request Mock DB failure:", mockErr);
@@ -516,21 +435,7 @@ export async function verifyPatientLoginOtp(data: {
       return { success: false, error: "We could not find that patient account." };
     }
 
-    if (otp !== "123456") {
-      const record = await prisma.emailOtp.findFirst({
-        where: { email, purpose, used: false },
-        orderBy: { createdAt: "desc" },
-      });
-
-      if (!record || new Date() > record.expiresAt || record.otp !== otp) {
-        return { success: false, error: "Incorrect verification code. Please check your email and try again." };
-      }
-
-      await prisma.emailOtp.update({
-        where: { id: record.id },
-        data: { used: true },
-      });
-    }
+    await verifySupabaseEmailOtp(email, otp);
 
     if (purpose === "signup_verify" && !patient.emailVerified) {
       await prisma.patient.update({
@@ -559,13 +464,7 @@ export async function verifyPatientLoginOtp(data: {
         return { success: false, error: "We could not find that patient account." };
       }
 
-      if (otp !== "123456") {
-        const record = mockDb.findLatestOtp(email, purpose);
-        if (!record || new Date() > new Date(record.expiresAt) || record.otp !== otp) {
-          return { success: false, error: "Incorrect verification code." };
-        }
-        mockDb.markOtpAsUsed(record.id);
-      }
+      await verifySupabaseEmailOtp(email, otp);
 
       if (purpose === "signup_verify" && !patient.emailVerified) {
         mockDb.updatePatient(email, { emailVerified: true });
