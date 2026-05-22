@@ -1,4 +1,4 @@
-﻿"use server";
+"use server";
 
 import { createClient as createSupabaseServerClient } from "@/utils/supabase/server";
 import { prisma } from "@/lib/prisma";
@@ -152,13 +152,17 @@ async function verifySupabaseEmailOtp(email: string, otp: string) {
  * Step 1 of patient signup: create the account and email an OTP.
  */
 export async function requestPatientSignupOtp(data: PatientSignupPayload): Promise<PatientOtpResponse> {
+  const { firstName, middleName, lastName, suffix, email, countryCode, phone, dob, gender, password, hipaaConsent } = data;
+
+  if (!firstName || !lastName || !email || !phone || !dob || !password) {
+    return { success: false, error: "Missing required fields" };
+  }
+
+  let createdPatient: { id: string; email: string; firstName: string } | null = null;
+  let isMockDb = false;
+
+  // Step 1: Create the patient record in either Prisma or Mock DB fallback
   try {
-    const { firstName, middleName, lastName, suffix, email, countryCode, phone, dob, gender, password, hipaaConsent } = data;
-
-    if (!firstName || !lastName || !email || !phone || !dob || !password) {
-      return { success: false, error: "Missing required fields" };
-    }
-
     // Try Prisma DB signup first
     const existingPatient = await prisma.patient.findUnique({
       where: { email }
@@ -187,24 +191,10 @@ export async function requestPatientSignupOtp(data: PatientSignupPayload): Promi
       }
     });
 
-    await issueEmailOtp({
-      email: patient.email,
-      purpose: "signup_verify",
-      firstName: patient.firstName,
-    });
-
-    return {
-      success: true,
-      requiresOtp: true,
-      purpose: "signup_verify",
-      email: patient.email,
-      message: "We sent a 6-digit code to your email to finish setting up your patient account.",
-    };
-  } catch (error: unknown) {
+    createdPatient = { id: patient.id, email: patient.email, firstName: patient.firstName };
+  } catch (error: any) {
     console.warn("Prisma signup failed, falling back to mock JSON database:", error);
     try {
-      const { firstName, middleName, lastName, suffix, email, countryCode, phone, dob, gender, password, hipaaConsent } = data;
-      
       const existingPatient = mockDb.findPatientByEmail(email);
       if (existingPatient) {
         return { success: false, error: "A patient with this email already exists" };
@@ -226,23 +216,48 @@ export async function requestPatientSignupOtp(data: PatientSignupPayload): Promi
         emailVerified: false,
       });
 
-      await issueEmailOtp({
-        email: patient.email,
-        purpose: "signup_verify",
-        firstName: patient.firstName,
-      });
-
-      return {
-        success: true,
-        requiresOtp: true,
-        purpose: "signup_verify",
-        email: patient.email,
-        message: "We sent a 6-digit code to your email to finish setting up your patient account.",
-      };
-    } catch (mockErr) {
+      createdPatient = { id: patient.id, email: patient.email, firstName: patient.firstName };
+      isMockDb = true;
+    } catch (mockErr: any) {
       console.error("Signup Mock DB critical failure:", mockErr);
       return { success: false, error: "Failed to create patient account." };
     }
+  }
+
+  // Step 2: Attempt to send the verification OTP
+  try {
+    await issueEmailOtp({
+      email: createdPatient.email,
+      purpose: "signup_verify",
+      firstName: createdPatient.firstName,
+    });
+
+    return {
+      success: true,
+      requiresOtp: true,
+      purpose: "signup_verify",
+      email: createdPatient.email,
+      message: "We sent a 6-digit code to your email to finish setting up your patient account.",
+    };
+  } catch (otpError: any) {
+    console.error("Supabase OTP send failed. Rolling back patient record creation...", otpError);
+
+    // Rollback DB creation so user is not left in a half-created/orphaned state!
+    if (isMockDb) {
+      mockDb.deletePatient(createdPatient.email);
+    } else {
+      await prisma.patient.delete({
+        where: { email: createdPatient.email }
+      }).catch((dbDeleteErr) => {
+        console.error("Failed to delete patient during signup rollback:", dbDeleteErr);
+      });
+    }
+
+    // Return the informative error message (e.g. "email rate limit exceeded") so the user knows what actually failed!
+    return {
+      success: false,
+      error: otpError.message || "We could not send the verification code. Please try again."
+    };
   }
 }
 
@@ -320,6 +335,9 @@ export async function verifyPatientSignupOtp(data: {
  * Step 1 of patient login: validate password and email an OTP.
  */
 export async function requestPatientLoginOtp(data: PatientLoginPayload): Promise<PatientOtpResponse> {
+  let validatedPatient: { email: string; firstName: string; emailVerified: boolean } | null = null;
+
+  // Step 1: Validate credentials using Prisma or Mock DB fallback
   try {
     const { email, password } = data;
 
@@ -340,24 +358,8 @@ export async function requestPatientLoginOtp(data: PatientLoginPayload): Promise
       return { success: false, error: "Invalid email or password" };
     }
 
-    const purpose: OtpPurpose = patient.emailVerified ? "login_verify" : "signup_verify";
-
-    await issueEmailOtp({
-      email: patient.email,
-      purpose,
-      firstName: patient.firstName,
-    });
-
-    return {
-      success: true,
-      requiresOtp: true,
-      purpose,
-      email: patient.email,
-      message: patient.emailVerified
-        ? "We sent a 6-digit code to your email to confirm this sign-in."
-        : "Your account still needs email verification. We sent you a fresh 6-digit code.",
-    };
-  } catch (error: unknown) {
+    validatedPatient = { email: patient.email, firstName: patient.firstName, emailVerified: patient.emailVerified };
+  } catch (error: any) {
     console.warn("Prisma login request failed, falling back to mock database:", error);
     try {
       const { email, password } = data;
@@ -372,27 +374,38 @@ export async function requestPatientLoginOtp(data: PatientLoginPayload): Promise
         return { success: false, error: "Invalid email or password" };
       }
 
-      const purpose: OtpPurpose = patient.emailVerified ? "login_verify" : "signup_verify";
-
-      await issueEmailOtp({
-        email: patient.email,
-        purpose,
-        firstName: patient.firstName,
-      });
-
-      return {
-        success: true,
-        requiresOtp: true,
-        purpose,
-        email: patient.email,
-        message: patient.emailVerified
-          ? "We sent a 6-digit code to your email to confirm this sign-in."
-          : "Your account still needs email verification. We sent you a fresh 6-digit code.",
-      };
+      validatedPatient = { email: patient.email, firstName: patient.firstName, emailVerified: patient.emailVerified };
     } catch (mockErr) {
       console.error("Login request Mock DB failure:", mockErr);
       return { success: false, error: "Authentication failed" };
     }
+  }
+
+  // Step 2: Attempt to send the verification OTP
+  try {
+    const purpose: OtpPurpose = validatedPatient.emailVerified ? "login_verify" : "signup_verify";
+
+    await issueEmailOtp({
+      email: validatedPatient.email,
+      purpose,
+      firstName: validatedPatient.firstName,
+    });
+
+    return {
+      success: true,
+      requiresOtp: true,
+      purpose,
+      email: validatedPatient.email,
+      message: validatedPatient.emailVerified
+        ? "We sent a 6-digit code to your email to confirm this sign-in."
+        : "Your account still needs email verification. We sent you a fresh 6-digit code.",
+    };
+  } catch (otpError: any) {
+    console.error("Supabase login OTP send failed:", otpError);
+    return {
+      success: false,
+      error: otpError.message || "We could not send the verification code. Please try again."
+    };
   }
 }
 
