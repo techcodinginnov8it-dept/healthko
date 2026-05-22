@@ -1,12 +1,13 @@
-"use server";
+﻿"use server";
 
-import { createClient as createSupabaseClient } from "@supabase/supabase-js";
+import { createClient as createSupabaseServerClient } from "@/utils/supabase/server";
 import { prisma } from "@/lib/prisma";
 import { clearPatientSession, createPatientSession } from "@/lib/auth/patient-session";
 import { clearDoctorSession, createDoctorSession } from "@/lib/auth/doctor-session";
 import bcrypt from "bcryptjs";
 import { redirect } from "next/navigation";
 import { mockDb } from "@/lib/mockDb";
+import { cookies } from "next/headers";
 
 // Seed data helper to ensure demo doctors exist in Supabase
 async function ensureFeaturedDoctorsSeeded() {
@@ -88,22 +89,6 @@ type DoctorLoginPayload = {
   securityKey?: string;
 };
 
-function createSupabaseAuthClient() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const key = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
-
-  if (!url || !key || url.includes("your-project-ref")) {
-    throw new Error("Supabase Auth is not configured. Set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY.");
-  }
-
-  return createSupabaseClient(url, key, {
-    auth: {
-      autoRefreshToken: false,
-      persistSession: false,
-    },
-  });
-}
-
 async function sendPatientSupabaseOtp({
   email,
   purpose,
@@ -113,7 +98,8 @@ async function sendPatientSupabaseOtp({
   purpose: OtpPurpose;
   firstName?: string;
 }) {
-  const supabase = createSupabaseAuthClient();
+  const cookieStore = await cookies();
+  const supabase = createSupabaseServerClient(cookieStore);
   const { error } = await supabase.auth.signInWithOtp({
     email,
     options: {
@@ -148,11 +134,9 @@ async function issueEmailOtp({
 }
 
 async function verifySupabaseEmailOtp(email: string, otp: string) {
-  if (otp === "123456" && process.env.NODE_ENV !== "production") {
-    return;
-  }
 
-  const supabase = createSupabaseAuthClient();
+  const cookieStore = await cookies();
+  const supabase = createSupabaseServerClient(cookieStore);
   const { error } = await supabase.auth.verifyOtp({
     email,
     token: otp,
@@ -272,7 +256,7 @@ export async function verifyPatientSignupOtp(data: {
   try {
     const { email, otp } = data;
 
-    if (!email || !otp || (otp.length !== 6 && otp !== "123456")) {
+    if (!email || !otp || otp.length !== 6) {
       return { success: false, error: "A valid 6-digit verification code is required." };
     }
 
@@ -423,7 +407,7 @@ export async function verifyPatientLoginOtp(data: {
   try {
     const { email, otp, purpose = "login_verify" } = data;
 
-    if (!email || !otp || (otp.length !== 6 && otp !== "123456")) {
+    if (!email || !otp || otp.length !== 6) {
       return { success: false, error: "A valid 6-digit verification code is required." };
     }
 
@@ -489,6 +473,13 @@ export async function verifyPatientLoginOtp(data: {
 
 export async function logoutPatient() {
   await clearPatientSession();
+  try {
+    const cookieStore = await cookies();
+    const supabase = createSupabaseServerClient(cookieStore);
+    await supabase.auth.signOut();
+  } catch (err) {
+    console.warn("Supabase signOut failed:", err);
+  }
   redirect("/signin");
 }
 
@@ -534,7 +525,7 @@ export async function loginDoctor(data: DoctorLoginPayload) {
     }
 
     // Verify 6-digit passcode check
-    if (securityKey && securityKey !== "123456" && securityKey.length !== 6) {
+    if (securityKey && securityKey.length !== 6) {
       return { success: false, error: "Security key must be a 6-digit verification code" };
     }
 
@@ -571,8 +562,8 @@ export async function loginDoctor(data: DoctorLoginPayload) {
         return { success: false, error: "Invalid credentials" };
       }
 
-      // Verify passcode (accept 123456 master or any 6-digit)
-      if (securityKey && securityKey !== "123456" && securityKey.length !== 6) {
+      // Verify passcode (require 6-digit)
+      if (securityKey && securityKey.length !== 6) {
         return { success: false, error: "Security key must be a 6-digit verification code" };
       }
 

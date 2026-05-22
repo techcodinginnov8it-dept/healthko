@@ -89,7 +89,7 @@ export default function Testimonials() {
 
                 {/* Text Quote */}
                 <p className="text-slate-600 text-sm font-medium leading-relaxed italic">
-                  "{test.text}"
+                  &quot;{test.text}&quot;
                 </p>
               </div>
 

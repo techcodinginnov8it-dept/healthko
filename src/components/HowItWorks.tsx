@@ -56,7 +56,7 @@ export default function HowItWorks() {
             How HealthKo Works for You
           </h3>
           <p className="text-slate-500 font-medium text-lg leading-relaxed">
-            We've simplified virtual clinic visits down to a straightforward process so you can focus on recovering rather than navigating paperwork.
+            We&apos;ve simplified virtual clinic visits down to a straightforward process so you can focus on recovering rather than navigating paperwork.
           </p>
         </div>
 

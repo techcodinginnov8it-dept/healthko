@@ -8,6 +8,7 @@
  * Only async functions are exported in this file, as required by Next.js.
  */
 
+import { getErrorMessage } from "@/lib/errors";
 import { createAdminClient } from "@/utils/supabase/admin";
 import { STORAGE_BUCKET, type UploadFolder } from "@/utils/supabase/storage";
 
@@ -88,11 +89,11 @@ export async function uploadFileToStorage(
       url: urlData.publicUrl,
       path: data.path,
     };
-  } catch (err: any) {
-    console.error("[Storage Action Error]", err);
+  } catch (error: unknown) {
+    console.error("[Storage Action Error]", error);
     return {
       success: false,
-      error: err.message || "An unexpected error occurred during upload.",
+      error: getErrorMessage(error, "An unexpected error occurred during upload."),
     };
   }
 }
@@ -109,7 +110,7 @@ export async function deleteFileFromStorage(
     const { error } = await supabase.storage.from(STORAGE_BUCKET).remove([path]);
     if (error) return { success: false, error: error.message };
     return { success: true };
-  } catch (err: any) {
-    return { success: false, error: err.message || "Delete failed." };
+  } catch (error: unknown) {
+    return { success: false, error: getErrorMessage(error, "Delete failed.") };
   }
 }

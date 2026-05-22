@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { getErrorMessage } from "@/lib/errors";
 import { prisma } from "@/lib/prisma";
 import { requirePatientSession } from "@/lib/auth/patient-session";
 import { mockDb } from "@/lib/mockDb";
@@ -18,8 +19,8 @@ export async function getDoctorsList() {
       },
     });
     return { success: true, doctors };
-  } catch (error: any) {
-    console.warn("Prisma getDoctorsList failed, falling back to mock JSON database:", error);
+  } catch (error: unknown) {
+    console.warn("Prisma getDoctorsList failed, falling back to mock JSON database:", getErrorMessage(error, "Unknown error"));
     try {
       const doctors = mockDb.getDoctorsList();
       return { success: true, doctors };
@@ -63,8 +64,8 @@ export async function bookAppointment(data: BookAppointmentPayload) {
 
     revalidatePath("/patient/dashboard");
     return { success: true, consultation };
-  } catch (error: any) {
-    console.warn("Prisma bookAppointment failed, falling back to mock JSON database:", error);
+  } catch (error: unknown) {
+    console.warn("Prisma bookAppointment failed, falling back to mock JSON database:", getErrorMessage(error, "Unknown error"));
     try {
       const session = await requirePatientSession();
       const { doctorId, scheduledAt, reason } = data;

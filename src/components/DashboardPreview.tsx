@@ -281,7 +281,7 @@ export default function DashboardPreview() {
                   {/* Left 4 cols: Today's Queue */}
                   <div className="md:col-span-4 p-4 rounded-xl bg-slate-900 border border-slate-800 space-y-3">
                     <span className="text-xs font-bold text-slate-400 uppercase tracking-widest block mb-2">
-                      Today's Patient Queue
+                      Today&apos;s Patient Queue
                     </span>
                     <div className="space-y-2">
                       {queue.map((pt) => (

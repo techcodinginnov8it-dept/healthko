@@ -2,10 +2,9 @@
 
 import { useState } from "react";
 import Link from "next/link";
+import { getErrorMessage } from "@/lib/errors";
 import { uploadFileToStorage } from "../../actions/storage";
 import { submitDoctorAudit } from "../../actions/audit";
-
-const BUCKET = "healthko";
 
 const SPECIALTIES = [
   { value: "GENERAL_PRACTITIONER", label: "General Practitioner / Family Medicine" },
@@ -108,11 +107,11 @@ export default function DoctorAuditPage() {
       setDocumentUrl(result.url);
       setUploadProgress(100);
       setIsUploading(false);
-    } catch (err: any) {
+    } catch (error: unknown) {
       setIsUploading(false);
       setUploadProgress(0);
       setFileName("");
-      setUploadError(err.message || "An unexpected error occurred during upload.");
+      setUploadError(getErrorMessage(error, "An unexpected error occurred during upload."));
     }
   };
 
@@ -197,7 +196,7 @@ export default function DoctorAuditPage() {
       } else {
         setError(res.error || "Auditing submission failed. Please verify your NPI details.");
       }
-    } catch (err: any) {
+    } catch {
       setLoading(false);
       setError("A connection error occurred. Our verification servers are momentarily loaded.");
     }

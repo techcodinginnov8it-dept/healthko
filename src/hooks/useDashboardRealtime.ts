@@ -65,7 +65,7 @@ export function useDashboardRealtime(onEvent?: (event: RealtimeEvent) => void) {
   useEffect(() => {
     const socket = io({
       path: SOCKET_PATH,
-      transports: ["websocket", "polling"],
+      transports: ["websocket"],
       reconnection: true,
     });
     socketRef.current = socket;
@@ -75,6 +75,7 @@ export function useDashboardRealtime(onEvent?: (event: RealtimeEvent) => void) {
     socket.on("dashboard:event", handleMessage);
     socket.on("reconnect_attempt", () => setReconnectState("reconnecting"));
     socket.on("connect", () => setReconnectState(null));
+    socket.on("connect_error", () => setReconnectState("offline"));
     socket.on("disconnect", () => setReconnectState("offline"));
 
     return () => {

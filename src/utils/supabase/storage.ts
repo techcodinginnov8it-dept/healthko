@@ -6,6 +6,7 @@
  */
 
 import { createClient } from "@/utils/supabase/client";
+import { getErrorMessage } from "@/lib/errors";
 
 /** Single Supabase Storage bucket used by the entire app */
 export const STORAGE_BUCKET = "healthko";
@@ -120,12 +121,12 @@ export async function uploadToStorage(
       url: urlData.publicUrl,
       path: data.path,
     };
-  } catch (err: any) {
+  } catch (error: unknown) {
     if (tickInterval) clearInterval(tickInterval);
     onProgress?.(0);
     return {
       success: false,
-      error: err.message || "An unexpected upload error occurred.",
+      error: getErrorMessage(error, "An unexpected upload error occurred."),
     };
   }
 }
@@ -141,7 +142,7 @@ export async function deleteFromStorage(path: string): Promise<{ success: boolea
     const { error } = await supabase.storage.from(STORAGE_BUCKET).remove([path]);
     if (error) return { success: false, error: error.message };
     return { success: true };
-  } catch (err: any) {
-    return { success: false, error: err.message || "Delete failed." };
+  } catch (error: unknown) {
+    return { success: false, error: getErrorMessage(error, "Delete failed.") };
   }
 }

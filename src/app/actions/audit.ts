@@ -1,5 +1,6 @@
 "use server";
 
+import { getErrorMessage } from "@/lib/errors";
 import { prisma } from "@/lib/prisma";
 
 export async function submitDoctorAudit(data: {
@@ -96,8 +97,11 @@ export async function submitDoctorAudit(data: {
       status: audit.status,
       linked: !!linkedDoctorId,
     };
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error("Credentials Audit Error:", error);
-    return { success: false, error: error.message || "Failed to submit credential audit details" };
+    return {
+      success: false,
+      error: getErrorMessage(error, "Failed to submit credential audit details"),
+    };
   }
 }
