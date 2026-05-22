@@ -71,6 +71,24 @@
       "isActive": true,
       "createdAt": "2026-05-21T11:22:40.987Z",
       "updatedAt": "2026-05-21T11:23:25.875Z"
+    },
+    {
+      "firstName": "Test",
+      "middleName": "T",
+      "lastName": "Est",
+      "suffix": null,
+      "email": "thisisatestemail102294@gmail.com",
+      "countryCode": "+63",
+      "phone": "9212121211",
+      "dob": "1994-10-22",
+      "gender": "Male",
+      "password": "$2a$10$I/pih9w4CwMKR5eF0Cc/juk3NrO4C682Y0CMBq055H7Vphdj1pxS2",
+      "hipaaConsent": true,
+      "emailVerified": false,
+      "id": "pat-vk5ujoe5q",
+      "isActive": true,
+      "createdAt": "2026-05-22T16:32:22.141Z",
+      "updatedAt": "2026-05-22T16:32:22.141Z"
     }
   ],
   "doctors": [

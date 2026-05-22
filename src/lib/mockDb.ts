@@ -222,6 +222,15 @@ export const mockDb = {
     return newPatient;
   },
 
+  deletePatient(email: string): boolean {
+    const db = getDb();
+    const index = db.patients.findIndex((p) => p.email.toLowerCase() === email.toLowerCase());
+    if (index === -1) return false;
+    db.patients.splice(index, 1);
+    saveDb(db);
+    return true;
+  },
+
   updatePatient(email: string, data: Partial<MockPatient>): MockPatient | null {
     const db = getDb();
     const patientIndex = db.patients.findIndex((p) => p.email.toLowerCase() === email.toLowerCase());
