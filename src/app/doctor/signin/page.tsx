@@ -213,12 +213,12 @@ export default function DoctorSignInPage() {
                   <label className="block text-[10px] font-black text-slate-400 uppercase tracking-wider">
                     Password
                   </label>
-                  <span
-                    className="text-[10px] font-bold text-slate-400 cursor-not-allowed select-none"
-                    title="Password recovery is currently disabled. Please contact system support."
+                  <Link
+                    href="/forgot-password"
+                    className="text-[10px] font-bold text-brand-teal hover:text-brand-teal-hover hover:underline transition-colors"
                   >
                     Forgot password?
-                  </span>
+                  </Link>
                 </div>
                 <div className="relative">
                   <input

@@ -254,12 +254,12 @@ export default function SignInPage() {
                   Keep me logged in for 30 days
                 </label>
               </div>
-              <span
-                className="text-xs font-bold text-slate-400 cursor-not-allowed select-none"
-                title="Password recovery is currently disabled. Please contact system support."
+              <Link
+                href="/forgot-password"
+                className="text-xs font-bold text-brand-teal hover:text-brand-teal-hover hover:underline transition-colors"
               >
                 Forgot password?
-              </span>
+              </Link>
             </div>
 
             <button
