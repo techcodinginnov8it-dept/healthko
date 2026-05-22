@@ -19,6 +19,12 @@ enum ConsultationStatus {
   CANCELLED
 }
 
+enum VideoSessionStatus {
+  WAITING
+  STARTED
+  ENDED
+}
+
 enum DoctorSpecialty {
   GENERAL_PRACTITIONER
   CARDIOLOGIST
@@ -160,11 +166,28 @@ model Consultation {
   // Relations
   patient      Patient             @relation(fields: [patientId], references: [id], onDelete: Cascade)
   doctor       Doctor              @relation(fields: [doctorId], references: [id], onDelete: Cascade)
+  videoSession VideoSession?
 
   @@index([patientId])
   @@index([doctorId])
   @@index([status])
   @@map("consultations")
+}
+
+model VideoSession {
+  id             String             @id @default(uuid())
+  consultationId String             @unique
+  status         VideoSessionStatus @default(WAITING)
+  roomId         String             @unique
+  startedAt      DateTime?
+  endedAt        DateTime?
+  createdAt      DateTime           @default(now())
+  updatedAt      DateTime           @updatedAt
+
+  consultation   Consultation       @relation(fields: [consultationId], references: [id], onDelete: Cascade)
+
+  @@index([status])
+  @@map("video_sessions")
 }
 
 // ─────────────────────────────────────────────

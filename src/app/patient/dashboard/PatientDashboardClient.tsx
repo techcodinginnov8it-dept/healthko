@@ -1,10 +1,13 @@
 "use client";
 
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { logoutPatient } from "@/app/actions/auth";
 import { bookAppointment } from "@/app/actions/patient";
+import { authorizePatientVideoSession, endVideoSession } from "@/app/actions/video-session";
+import { AppointmentCalendar } from "@/components/dashboard/AppointmentCalendar";
 import { DashboardShell, type DashboardNavItem } from "@/components/dashboard/DashboardShell";
+import { PatientSettingsModule } from "@/components/dashboard/SettingsModule";
 import {
   AppointmentCard,
   ChatPanel,
@@ -12,11 +15,12 @@ import {
   LiveConsultationPanel,
   PrescriptionList,
   StatGrid,
+  WaitingRoomPanel,
 } from "@/components/dashboard/SharedModules";
 import { useConsultationSession } from "@/hooks/useConsultationSession";
 import { useDashboardModule } from "@/hooks/useDashboardModule";
 import { useDashboardRealtime } from "@/hooks/useDashboardRealtime";
-import { formatDate, formatDateTime } from "@/lib/dashboard/format";
+import { formatDateTime } from "@/lib/dashboard/format";
 import type {
   DashboardDoctor,
   DashboardPatient,
@@ -33,6 +37,7 @@ type Patient = DashboardPatient & {
 type PatientDashboardClientProps = {
   patient: Patient;
   doctors: DashboardDoctor[];
+  initialModule?: PatientModuleId;
 };
 
 const PATIENT_MODULES = [
@@ -48,14 +53,19 @@ const PATIENT_MODULES = [
   "settings",
 ] as const satisfies readonly PatientModuleId[];
 
-export default function PatientDashboardClient({ patient, doctors }: PatientDashboardClientProps) {
+export default function PatientDashboardClient({ patient, doctors, initialModule = "overview" }: PatientDashboardClientProps) {
   const router = useRouter();
-  const [activeModule, setActiveModule] = useDashboardModule<PatientModuleId>("overview", PATIENT_MODULES);
+  const [activeModule, setActiveModule] = useDashboardModule<PatientModuleId>(initialModule, PATIENT_MODULES);
   const [collapsed, setCollapsed] = useState(false);
   const [selectedDoctorId, setSelectedDoctorId] = useState(doctors[0]?.id || "");
   const [appointmentDate, setAppointmentDate] = useState("");
   const [appointmentTime, setAppointmentTime] = useState("");
   const [reason, setReason] = useState("");
+  const [authorizedRooms, setAuthorizedRooms] = useState<Record<string, string>>({});
+  const [startedAppointmentId, setStartedAppointmentId] = useState("");
+  const [dismissedStartedId, setDismissedStartedId] = useState("");
+  const [sessionNotice, setSessionNotice] = useState("");
+  const [joinError, setJoinError] = useState("");
   const [bookingState, setBookingState] = useState<{ loading: boolean; error: string; success: string }>({
     loading: false,
     error: "",
@@ -63,16 +73,39 @@ export default function PatientDashboardClient({ patient, doctors }: PatientDash
   });
 
   const onRealtimeEvent = useCallback((event: RealtimeEvent) => {
-    if (event.actorRole === "doctor" && (event.type === "appointment:updated" || event.type === "notification:new")) {
+    if (
+      event.actorRole === "doctor" &&
+      (
+        event.type === "appointment:updated" ||
+        event.type === "appointment:rescheduled" ||
+        event.type === "appointment:cancelled" ||
+        event.type === "appointment:referred" ||
+        event.type === "session:started" ||
+        event.type === "session:ended" ||
+        event.type === "notification:new"
+      )
+    ) {
+      if (event.type === "session:started" && event.roomId) {
+        setAuthorizedRooms((current) => ({ ...current, [event.appointmentId]: event.roomId || "" }));
+        if (dismissedStartedId !== event.appointmentId) {
+          setStartedAppointmentId(event.appointmentId);
+        }
+        setSessionNotice(event.body || "Your doctor has started the consultation. You may now join.");
+      }
       router.refresh();
     }
-  }, [router]);
+  }, [dismissedStartedId, router]);
 
   const realtime = useDashboardRealtime(onRealtimeEvent);
   const session = useConsultationSession<PatientAppointment>({
     role: "patient",
     publish: realtime.publish,
   });
+  const receiveRealtimeEvent = session.receiveRealtimeEvent;
+
+  useEffect(() => {
+    receiveRealtimeEvent(realtime.lastEvent);
+  }, [realtime.lastEvent, receiveRealtimeEvent]);
 
   const appointments = patient.bookings;
   const upcomingAppointments = useMemo(
@@ -100,15 +133,10 @@ export default function PatientDashboardClient({ patient, doctors }: PatientDash
   ];
 
   const navItems: DashboardNavItem<PatientModuleId>[] = [
-    { id: "overview", label: "Overview Panel" },
-    { id: "book", label: "Book Appointment" },
-    { id: "live", label: "Live Consultation", badge: confirmedAppointments.length || undefined },
-    { id: "history", label: "Medical History" },
-    { id: "prescriptions", label: "Prescriptions", badge: prescriptions.length || undefined },
-    { id: "doctors", label: "Doctors Directory" },
-    { id: "messages", label: "Messages", badge: session.messages.length || undefined },
-    { id: "notifications", label: "Notifications", badge: notifications.length || undefined },
-    { id: "billing", label: "Payments & Billing" },
+    { id: "overview", label: "Overview" },
+    { id: "book", label: "Appointments" },
+    { id: "live", label: "Consultations", badge: confirmedAppointments.length || undefined },
+    { id: "history", label: "Medical Access", badge: prescriptions.length || undefined },
     { id: "settings", label: "Settings" },
   ];
 
@@ -131,7 +159,14 @@ export default function PatientDashboardClient({ patient, doctors }: PatientDash
       return;
     }
 
-    realtime.publish({ type: "appointment:created", appointmentId: result.consultation?.id || "pending", actorRole: "patient" });
+    realtime.publish({
+      type: "appointment:created",
+      appointmentId: result.consultation?.id || "pending",
+      actorRole: "patient",
+      scheduledAt: `${appointmentDate}T${appointmentTime}:00`,
+      title: "New appointment request",
+      body: "A patient submitted a consultation request for review.",
+    });
     setBookingState({ loading: false, error: "", success: "Appointment request sent to the doctor." });
     setAppointmentDate("");
     setAppointmentTime("");
@@ -139,12 +174,63 @@ export default function PatientDashboardClient({ patient, doctors }: PatientDash
     router.refresh();
   };
 
+  const joinAuthorizedSession = async (targetAppointment?: PatientAppointment) => {
+    const appointment = targetAppointment || session.activeAppointment;
+
+    if (!appointment) {
+      return;
+    }
+
+    setJoinError("");
+    setStartedAppointmentId("");
+    setDismissedStartedId(appointment.id);
+
+    const result = await authorizePatientVideoSession(appointment.id);
+    if (!result.success || !result.roomId || !result.accessToken) {
+      setJoinError(result.error || "The doctor has not started this consultation yet.");
+      session.openWaitingRoom(appointment);
+      setActiveModule("live");
+      return;
+    }
+
+    session.enterAuthorizedRoom(appointment, result.roomId, result.accessToken);
+    realtime.joinVideoRoom(result.roomId);
+    setActiveModule("live");
+    realtime.publish({
+      type: "session:joined",
+      appointmentId: appointment.id,
+      actorRole: "patient",
+      roomId: result.roomId,
+    });
+  };
+
   const startLiveSession = (appointment: PatientAppointment) => {
-    session.startSession(appointment);
+    setJoinError("");
+    setSessionNotice("");
+
+    if (authorizedRooms[appointment.id]) {
+      void joinAuthorizedSession(appointment);
+      return;
+    }
+
+    session.openWaitingRoom(appointment);
     setActiveModule("live");
   };
 
+  const handleEndSession = async () => {
+    if (session.activeAppointment) {
+      await endVideoSession(session.activeAppointment.id);
+    }
+    session.endSession();
+    setStartedAppointmentId("");
+    setActiveModule("overview");
+    router.refresh();
+  };
+
   const tone = "light" as const;
+  const startedAppointment = startedAppointmentId
+    ? confirmedAppointments.find((booking) => booking.id === startedAppointmentId)
+    : undefined;
 
   return (
     <DashboardShell
@@ -170,6 +256,31 @@ export default function PatientDashboardClient({ patient, doctors }: PatientDash
         </form>
       )}
     >
+      {startedAppointmentId && (
+        <div className="fixed inset-0 z-50 grid place-items-center bg-slate-950/80 p-4 backdrop-blur" role="dialog" aria-modal="true">
+          <div className="w-full max-w-2xl rounded-xl border border-emerald-200 bg-white p-8 text-center shadow-2xl">
+            <p className="text-[10px] font-black uppercase tracking-[0.25em] text-brand-teal">Live consultation ready</p>
+            <h2 className="mt-3 font-display text-3xl font-black text-slate-950">
+              {startedAppointment?.doctor.name || "Your doctor"} started the consultation
+            </h2>
+            <p className="mx-auto mt-3 max-w-lg text-sm font-semibold text-slate-500">
+              Join the secure live room now.
+            </p>
+            <button
+              type="button"
+              onClick={() => {
+                if (startedAppointment) {
+                  void joinAuthorizedSession(startedAppointment);
+                }
+              }}
+              className="mt-6 rounded-lg bg-brand-teal px-6 py-3 text-sm font-black text-white"
+            >
+              Join Consultation
+            </button>
+          </div>
+        </div>
+      )}
+
       {activeModule === "overview" && (
         <div className="space-y-6">
           <StatGrid
@@ -199,7 +310,7 @@ export default function PatientDashboardClient({ patient, doctors }: PatientDash
                     actions={
                       booking.status === "CONFIRMED" ? (
                         <button type="button" onClick={() => startLiveSession(booking)} className="rounded-lg bg-brand-red px-3 py-2 text-xs font-black text-white">
-                          Enter Room
+                          Open Waiting Room
                         </button>
                       ) : undefined
                     }
@@ -210,6 +321,15 @@ export default function PatientDashboardClient({ patient, doctors }: PatientDash
               )}
             </div>
           </section>
+          <AppointmentCalendar
+            appointments={upcomingAppointments.map((booking) => ({
+              id: booking.id,
+              title: booking.doctor.name,
+              subtitle: booking.reason || booking.doctor.specialty,
+              scheduledAt: booking.scheduledAt,
+              status: booking.status,
+            }))}
+          />
         </div>
       )}
 
@@ -250,7 +370,7 @@ export default function PatientDashboardClient({ patient, doctors }: PatientDash
       )}
 
       {activeModule === "live" && (
-        session.activeAppointment ? (
+        session.activeAppointment && session.status === "connected" ? (
           <LiveConsultationPanel
             role="patient"
             counterpartName={session.activeAppointment.doctor.name}
@@ -258,10 +378,27 @@ export default function PatientDashboardClient({ patient, doctors }: PatientDash
             status={session.status}
             isCameraOn={session.isCameraOn}
             isMicOn={session.isMicOn}
+            counterpartCameraOn={session.counterpartCameraOn}
+            counterpartMicOn={session.counterpartMicOn}
             onToggleCamera={session.toggleCamera}
             onToggleMic={session.toggleMic}
-            onEnd={session.endSession}
+            onEnd={handleEndSession}
             chat={<ChatPanel role="patient" messages={session.messages} onSend={session.sendMessage} />}
+          />
+        ) : session.activeAppointment ? (
+          <WaitingRoomPanel
+            doctorName={session.activeAppointment.doctor.name}
+            appointmentTime={session.activeAppointment.scheduledAt}
+            isCameraOn={session.isCameraOn}
+            isMicOn={session.isMicOn}
+            isSpeakerReady={session.isSpeakerReady}
+            canJoin={Boolean(authorizedRooms[session.activeAppointment.id])}
+            notice={sessionNotice}
+            error={joinError}
+            onToggleCamera={session.toggleCamera}
+            onToggleMic={session.toggleMic}
+            onToggleSpeaker={session.toggleSpeaker}
+            onJoin={joinAuthorizedSession}
           />
         ) : (
           <section className="space-y-4">
@@ -286,16 +423,35 @@ export default function PatientDashboardClient({ patient, doctors }: PatientDash
       )}
 
       {activeModule === "history" && (
-        <section className="space-y-4">
-          <h2 className="text-lg font-black">Medical History</h2>
-          {historicalAppointments.length ? (
-            historicalAppointments.map((booking) => (
-              <AppointmentCard key={booking.id} title={booking.doctor.name} subtitle={booking.doctor.specialty} scheduledAt={booking.scheduledAt} status={booking.status} reason={booking.notes || booking.reason} />
-            ))
-          ) : (
-            <EmptyState title="No medical history yet" body="Completed consultations and doctor notes appear here." />
-          )}
-        </section>
+        <div className="space-y-6">
+          <section className="space-y-4">
+            <h2 className="text-lg font-black">Medical Access</h2>
+            {historicalAppointments.length ? (
+              historicalAppointments.map((booking) => (
+                <AppointmentCard key={booking.id} title={booking.doctor.name} subtitle={booking.doctor.specialty} scheduledAt={booking.scheduledAt} status={booking.status} reason={booking.notes || booking.reason} />
+              ))
+            ) : (
+              <EmptyState title="No medical history yet" body="Completed consultations and doctor notes appear here." />
+            )}
+          </section>
+
+          <section className="space-y-4">
+            <div className="flex flex-col gap-1">
+              <h3 className="text-base font-black">Prescriptions</h3>
+              <p className="text-xs font-semibold text-slate-500">Issued prescriptions remain available with your visit history.</p>
+            </div>
+            <PrescriptionList
+              role="patient"
+              items={appointments.map((booking) => ({
+                id: booking.id,
+                prescription: booking.prescription,
+                reason: booking.reason,
+                scheduledAt: booking.scheduledAt,
+                owner: booking.doctor.name,
+              }))}
+            />
+          </section>
+        </div>
       )}
 
       {activeModule === "prescriptions" && (
@@ -347,14 +503,7 @@ export default function PatientDashboardClient({ patient, doctors }: PatientDash
       )}
 
       {activeModule === "settings" && (
-        <section className="rounded-xl border border-slate-200 bg-white p-5">
-          <h2 className="text-lg font-black">Settings</h2>
-          <dl className="mt-4 grid gap-3 text-sm">
-            <div><dt className="font-black text-slate-500">Email</dt><dd>{patient.email}</dd></div>
-            <div><dt className="font-black text-slate-500">Phone</dt><dd>{patient.countryCode} {patient.phone}</dd></div>
-            <div><dt className="font-black text-slate-500">Date joined</dt><dd>{formatDate(patient.createdAt)}</dd></div>
-          </dl>
-        </section>
+        <PatientSettingsModule patient={patient} />
       )}
     </DashboardShell>
   );

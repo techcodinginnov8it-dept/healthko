@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useState } from "react";
-import type { ChatMessage, DashboardRole, RealtimeEvent } from "@/lib/dashboard/types";
+import type { ChatAttachment, ChatMessage, DashboardRole, RealtimeEvent } from "@/lib/dashboard/types";
 import { formatTimeNow } from "@/lib/dashboard/format";
 
 type SessionState<TAppointment> = {
@@ -9,6 +9,11 @@ type SessionState<TAppointment> = {
   status: "idle" | "waiting" | "connected" | "ended";
   isCameraOn: boolean;
   isMicOn: boolean;
+  counterpartCameraOn: boolean;
+  counterpartMicOn: boolean;
+  isSpeakerReady: boolean;
+  roomId: string;
+  accessToken: string;
   messages: ChatMessage[];
 };
 
@@ -24,43 +29,63 @@ export function useConsultationSession<TAppointment extends { id: string }>({
     status: "idle",
     isCameraOn: true,
     isMicOn: true,
+    counterpartCameraOn: true,
+    counterpartMicOn: true,
+    isSpeakerReady: true,
+    roomId: "",
+    accessToken: "",
     messages: [],
   });
 
-  const startSession = useCallback(
+  const openWaitingRoom = useCallback(
     (appointment: TAppointment) => {
       setState((current) => ({
         ...current,
         activeAppointment: appointment,
         status: "waiting",
+        roomId: "",
+        accessToken: "",
         messages: [
           {
-            id: `${appointment.id}-system-start`,
+            id: `${appointment.id}-waiting-room`,
             sender: role,
             text:
               role === "doctor"
-                ? "Clinical room opened. Waiting for patient connection."
-                : "Waiting room opened. Your doctor will join shortly.",
+                ? "Secure room is staged. Start the consultation when you are ready."
+                : "Waiting room opened. Complete your device checks while the doctor starts the consultation.",
             time: formatTimeNow(),
           },
         ],
       }));
-
-      publish({ type: "session:joined", appointmentId: appointment.id, actorRole: role });
-
-      window.setTimeout(() => {
-        setState((current) => ({
-          ...current,
-          status: current.activeAppointment?.id === appointment.id ? "connected" : current.status,
-        }));
-      }, 900);
     },
-    [publish, role]
+    [role]
   );
 
-  const endSession = useCallback(() => {
+  const enterAuthorizedRoom = useCallback(
+    (appointment: TAppointment, roomId: string, accessToken: string, nextStatus: SessionState<TAppointment>["status"] = "connected") => {
+      setState((current) => ({
+        ...current,
+        activeAppointment: appointment,
+        status: nextStatus,
+        roomId,
+        accessToken,
+        messages: [
+          ...current.messages,
+          {
+            id: `${appointment.id}-room-authorized-${Date.now()}`,
+            sender: role,
+            text: nextStatus === "waiting" ? "Secure room opened. Waiting for the patient to join." : "Secure WebRTC room access authorized.",
+            time: formatTimeNow(),
+          },
+        ],
+      }));
+    },
+    [role]
+  );
+
+  const endSession = useCallback((broadcast = true) => {
     setState((current) => {
-      if (current.activeAppointment) {
+      if (broadcast && current.activeAppointment) {
         publish({
           type: "session:ended",
           appointmentId: current.activeAppointment.id,
@@ -72,22 +97,52 @@ export function useConsultationSession<TAppointment extends { id: string }>({
         ...current,
         activeAppointment: null,
         status: "ended",
+        roomId: "",
+        accessToken: "",
       };
     });
   }, [publish, role]);
 
   const toggleCamera = useCallback(() => {
-    setState((current) => ({ ...current, isCameraOn: !current.isCameraOn }));
-  }, []);
+    setState((current) => {
+      const isCameraOn = !current.isCameraOn;
+      if (current.activeAppointment) {
+        publish({
+          type: "media:updated",
+          appointmentId: current.activeAppointment.id,
+          actorRole: role,
+          cameraOn: isCameraOn,
+          micOn: current.isMicOn,
+        });
+      }
+      return { ...current, isCameraOn };
+    });
+  }, [publish, role]);
 
   const toggleMic = useCallback(() => {
-    setState((current) => ({ ...current, isMicOn: !current.isMicOn }));
+    setState((current) => {
+      const isMicOn = !current.isMicOn;
+      if (current.activeAppointment) {
+        publish({
+          type: "media:updated",
+          appointmentId: current.activeAppointment.id,
+          actorRole: role,
+          cameraOn: current.isCameraOn,
+          micOn: isMicOn,
+        });
+      }
+      return { ...current, isMicOn };
+    });
+  }, [publish, role]);
+
+  const toggleSpeaker = useCallback(() => {
+    setState((current) => ({ ...current, isSpeakerReady: !current.isSpeakerReady }));
   }, []);
 
   const sendMessage = useCallback(
-    (text: string) => {
+    (text: string, attachment?: ChatAttachment) => {
       const trimmed = text.trim();
-      if (!trimmed) {
+      if (!trimmed && !attachment) {
         return;
       }
 
@@ -99,15 +154,19 @@ export function useConsultationSession<TAppointment extends { id: string }>({
         const message: ChatMessage = {
           id: `${current.activeAppointment.id}-${Date.now()}`,
           sender: role,
-          text: trimmed,
+          text: trimmed || (attachment ? `Shared ${attachment.name}` : ""),
           time: formatTimeNow(),
+          attachment,
         };
 
         publish({
           type: "message:new",
           appointmentId: current.activeAppointment.id,
           actorRole: role,
-          text: trimmed,
+          messageId: message.id,
+          text: message.text,
+          time: message.time,
+          attachment,
         });
 
         return {
@@ -119,8 +178,12 @@ export function useConsultationSession<TAppointment extends { id: string }>({
     [publish, role]
   );
 
-  const receiveMessage = useCallback((event: RealtimeEvent) => {
-    if (event.type !== "message:new") {
+  const receiveRealtimeEvent = useCallback((event: RealtimeEvent | null) => {
+    if (!event) {
+      return;
+    }
+
+    if (event.type === "notification:new") {
       return;
     }
 
@@ -133,15 +196,67 @@ export function useConsultationSession<TAppointment extends { id: string }>({
         return current;
       }
 
+      if (event.type === "session:ended") {
+        return {
+          ...current,
+          activeAppointment: null,
+          status: "ended",
+          roomId: "",
+          accessToken: "",
+          messages: [
+            ...current.messages,
+            {
+              id: `${event.appointmentId}-ended-${Date.now()}`,
+              sender: event.actorRole,
+              text: "The consultation was ended.",
+              time: formatTimeNow(),
+            },
+          ],
+        };
+      }
+
+      if (event.type === "media:updated") {
+        return {
+          ...current,
+          counterpartCameraOn: event.cameraOn,
+          counterpartMicOn: event.micOn,
+        };
+      }
+
+      if (event.type === "session:joined") {
+        return {
+          ...current,
+          status: "connected",
+          messages: [
+            ...current.messages,
+            {
+              id: `${event.appointmentId}-joined-${Date.now()}`,
+              sender: event.actorRole,
+              text: "Participant joined the live consultation room.",
+              time: formatTimeNow(),
+            },
+          ],
+        };
+      }
+
+      if (event.type !== "message:new") {
+        return current;
+      }
+
+      if (current.messages.some((message) => message.id === event.messageId)) {
+        return current;
+      }
+
       return {
         ...current,
         messages: [
           ...current.messages,
           {
-            id: `${event.appointmentId}-${Date.now()}`,
+            id: event.messageId,
             sender: event.actorRole,
             text: event.text,
-            time: formatTimeNow(),
+            time: event.time,
+            attachment: event.attachment,
           },
         ],
       };
@@ -150,11 +265,15 @@ export function useConsultationSession<TAppointment extends { id: string }>({
 
   return {
     ...state,
-    startSession,
+    startSession: openWaitingRoom,
+    openWaitingRoom,
+    enterAuthorizedRoom,
     endSession,
     toggleCamera,
     toggleMic,
+    toggleSpeaker,
     sendMessage,
-    receiveMessage,
+    receiveMessage: receiveRealtimeEvent,
+    receiveRealtimeEvent,
   };
 }

@@ -15,6 +15,11 @@ export type MockPatient = {
   phone: string;
   dob: string;
   gender: string | null;
+  address?: string | null;
+  city?: string | null;
+  state?: string | null;
+  zipCode?: string | null;
+  country?: string | null;
   password: string;
   hipaaConsent: boolean;
   isActive: boolean;
@@ -37,6 +42,9 @@ export type MockDoctor = {
   reviewCount: number;
   availability: string;
   consultFee: number | null;
+  licenseNumber?: string | null;
+  licenseState?: string | null;
+  yearsExp?: number | null;
   isActive: boolean;
   isFeatured: boolean;
   isVerified: boolean;
@@ -68,11 +76,23 @@ export type MockEmailOtp = {
   createdAt: string;
 };
 
+export type MockVideoSession = {
+  id: string;
+  consultationId: string;
+  status: "WAITING" | "STARTED" | "ENDED";
+  roomId: string;
+  startedAt: string | null;
+  endedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
 type MockDbSchema = {
   patients: MockPatient[];
   doctors: MockDoctor[];
   consultations: MockConsultation[];
   emailOtps: MockEmailOtp[];
+  videoSessions?: MockVideoSession[];
 };
 
 function getDb(): MockDbSchema {
@@ -147,6 +167,7 @@ function getDb(): MockDbSchema {
         doctors: defaultDoctors,
         consultations: [],
         emailOtps: [],
+        videoSessions: [],
       };
 
       fs.writeFileSync(DB_PATH, JSON.stringify(initialDb, null, 2), "utf8");
@@ -154,10 +175,12 @@ function getDb(): MockDbSchema {
     }
 
     const raw = fs.readFileSync(DB_PATH, "utf8");
-    return JSON.parse(raw) as MockDbSchema;
+    const parsed = JSON.parse(raw) as MockDbSchema;
+    parsed.videoSessions ||= [];
+    return parsed;
   } catch (error) {
     console.error("Error reading mock database, using empty state:", error);
-    return { patients: [], doctors: [], consultations: [], emailOtps: [] };
+    return { patients: [], doctors: [], consultations: [], emailOtps: [], videoSessions: [] };
   }
 }
 
@@ -213,6 +236,20 @@ export const mockDb = {
     return db.patients[patientIndex];
   },
 
+  updatePatientById(id: string, data: Partial<MockPatient>): MockPatient | null {
+    const db = getDb();
+    const patientIndex = db.patients.findIndex((p) => p.id === id);
+    if (patientIndex === -1) return null;
+
+    db.patients[patientIndex] = {
+      ...db.patients[patientIndex],
+      ...data,
+      updatedAt: new Date().toISOString(),
+    };
+    saveDb(db);
+    return db.patients[patientIndex];
+  },
+
   // --- Doctors ---
   findDoctorByEmailOrNpi(emailOrNpi: string): MockDoctor | null {
     const db = getDb();
@@ -227,11 +264,29 @@ export const mockDb = {
     return db.doctors.find((d) => d.id === id) || null;
   },
 
+  updateDoctor(id: string, data: Partial<MockDoctor>): MockDoctor | null {
+    const db = getDb();
+    const doctorIndex = db.doctors.findIndex((d) => d.id === id);
+    if (doctorIndex === -1) return null;
+
+    db.doctors[doctorIndex] = {
+      ...db.doctors[doctorIndex],
+      ...data,
+      updatedAt: new Date().toISOString(),
+    };
+    saveDb(db);
+    return db.doctors[doctorIndex];
+  },
+
   getDoctorsList(): Omit<MockDoctor, "password">[] {
     const db = getDb();
     return db.doctors
       .filter((d) => d.isActive)
-      .map(({ password, ...rest }) => rest);
+      .map((doctor) => {
+        const rest = { ...doctor } as Partial<MockDoctor>;
+        delete rest.password;
+        return rest as Omit<MockDoctor, "password">;
+      });
   },
 
   // --- OTPs ---
@@ -325,6 +380,11 @@ export const mockDb = {
                 phone: patient.phone,
                 dob: patient.dob,
                 gender: patient.gender,
+                address: patient.address ?? null,
+                city: patient.city ?? null,
+                state: patient.state ?? null,
+                zipCode: patient.zipCode ?? null,
+                country: patient.country ?? null,
                 emailVerified: patient.emailVerified,
               }
             : null,
@@ -372,5 +432,61 @@ export const mockDb = {
     };
     saveDb(db);
     return db.consultations[index];
+  },
+
+  startVideoSession(consultationId: string, roomId: string): MockVideoSession {
+    const db = getDb();
+    db.videoSessions ||= [];
+    const now = new Date().toISOString();
+    const index = db.videoSessions.findIndex((session) => session.consultationId === consultationId);
+
+    if (index !== -1) {
+      db.videoSessions[index] = {
+        ...db.videoSessions[index],
+        status: "STARTED",
+        roomId,
+        startedAt: now,
+        updatedAt: now,
+      };
+      saveDb(db);
+      return db.videoSessions[index];
+    }
+
+    const videoSession: MockVideoSession = {
+      id: "vid-" + Math.random().toString(36).substr(2, 9),
+      consultationId,
+      status: "STARTED",
+      roomId,
+      startedAt: now,
+      endedAt: null,
+      createdAt: now,
+      updatedAt: now,
+    };
+
+    db.videoSessions.push(videoSession);
+    saveDb(db);
+    return videoSession;
+  },
+
+  findVideoSessionByConsultation(consultationId: string): MockVideoSession | null {
+    const db = getDb();
+    return db.videoSessions?.find((session) => session.consultationId === consultationId) || null;
+  },
+
+  endVideoSession(consultationId: string): MockVideoSession | null {
+    const db = getDb();
+    db.videoSessions ||= [];
+    const index = db.videoSessions.findIndex((session) => session.consultationId === consultationId);
+    if (index === -1) return null;
+
+    const now = new Date().toISOString();
+    db.videoSessions[index] = {
+      ...db.videoSessions[index],
+      status: "ENDED",
+      endedAt: now,
+      updatedAt: now,
+    };
+    saveDb(db);
+    return db.videoSessions[index];
   },
 };

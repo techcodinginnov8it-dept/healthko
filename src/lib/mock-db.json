@@ -17,6 +17,60 @@
       "isActive": true,
       "createdAt": "2026-05-20T21:04:05.727Z",
       "updatedAt": "2026-05-20T21:04:27.765Z"
+    },
+    {
+      "firstName": "Jonas",
+      "middleName": "J",
+      "lastName": "Viray",
+      "suffix": "IV",
+      "email": "jonasv.innov8it@gmail.com",
+      "countryCode": "+63",
+      "phone": "9669773425",
+      "dob": "2026-05-21",
+      "gender": "Male",
+      "password": "$2a$10$ufGW76W5u9ZH03.dg.x9tufxTADiXTqeX/q7hz8B7NKl5teWYr7WK",
+      "hipaaConsent": true,
+      "emailVerified": false,
+      "id": "pat-403srhr9k",
+      "isActive": true,
+      "createdAt": "2026-05-21T10:48:14.875Z",
+      "updatedAt": "2026-05-21T10:48:14.875Z"
+    },
+    {
+      "firstName": "Jonas",
+      "middleName": "Test",
+      "lastName": "Viray",
+      "suffix": "IV",
+      "email": "caramelcrusade@gmail.com",
+      "countryCode": "+63",
+      "phone": "9643434345",
+      "dob": "2026-05-23",
+      "gender": "Female",
+      "password": "$2a$10$Sh0w5lyRTihiDDntqUq7Uuf3Snxkl.dsAiYKouw0Uzs.2UMXMZHIa",
+      "hipaaConsent": true,
+      "emailVerified": false,
+      "id": "pat-rtreyd2sa",
+      "isActive": true,
+      "createdAt": "2026-05-21T11:11:32.832Z",
+      "updatedAt": "2026-05-21T11:11:32.832Z"
+    },
+    {
+      "firstName": "Lara",
+      "middleName": "Ann",
+      "lastName": "Iglesias",
+      "suffix": "IV",
+      "email": "iglesialarajean60@gmail.com",
+      "countryCode": "+63",
+      "phone": "9438438434",
+      "dob": "2026-04-29",
+      "gender": "Female",
+      "password": "$2a$10$cp5LKoYWnjsBd4iEdW5zoO5BhUbyT9K5KlMrE7dAyVe2jHwPckN3a",
+      "hipaaConsent": true,
+      "emailVerified": true,
+      "id": "pat-1ypvw7gtl",
+      "isActive": true,
+      "createdAt": "2026-05-21T11:22:40.987Z",
+      "updatedAt": "2026-05-21T11:23:25.875Z"
     }
   ],
   "doctors": [
@@ -29,9 +83,9 @@
       "specialty": "Board-Certified Cardiologist",
       "rating": 4.9,
       "reviewCount": 142,
-      "availability": "Mon - Fri, 9AM - 5PM",
+      "availability": "Mon - Fri, 9AM - 6PM",
       "consultFee": 150,
-      "bio": "Dr. Sarah Jenkins is an Ivy League-educated cardiologist with over 15 years of clinical experience specializing in non-invasive cardiology and preventive health.",
+      "bio": "I am an Ivy League-educated cardiologist with over 15 years of clinical experience specializing in non-invasive cardiology and preventive health.",
       "image": null,
       "languages": [
         "English",
@@ -41,7 +95,10 @@
       "isFeatured": true,
       "isVerified": true,
       "createdAt": "2026-05-20T20:58:55.527Z",
-      "updatedAt": "2026-05-20T20:58:55.527Z"
+      "updatedAt": "2026-05-21T21:01:49.245Z",
+      "licenseNumber": "C123456",
+      "licenseState": null,
+      "yearsExp": 12
     },
     {
       "id": "doc-marcus-vance-456",
@@ -102,6 +159,32 @@
       "duration": 30,
       "createdAt": "2026-05-20T21:07:09.834Z",
       "updatedAt": "2026-05-20T21:13:02.527Z"
+    },
+    {
+      "id": "con-mq2d80kwy",
+      "patientId": "pat-jnpd6vok9",
+      "doctorId": "doc-sarah-jenkins-123",
+      "scheduledAt": "2026-05-22T03:00:00.000Z",
+      "status": "CONFIRMED",
+      "reason": "shortness of breath, palpitations and dizziness",
+      "notes": null,
+      "prescription": null,
+      "duration": 30,
+      "createdAt": "2026-05-20T22:03:05.531Z",
+      "updatedAt": "2026-05-21T22:00:29.777Z"
+    },
+    {
+      "id": "con-dv0u2tc16",
+      "patientId": "pat-jnpd6vok9",
+      "doctorId": "doc-sarah-jenkins-123",
+      "scheduledAt": "2026-05-23T02:00:00.000Z",
+      "status": "CONFIRMED",
+      "reason": "Having trouble catching MY breath, even with minimal exertion or while resting.",
+      "notes": null,
+      "prescription": null,
+      "duration": 30,
+      "createdAt": "2026-05-21T17:26:44.449Z",
+      "updatedAt": "2026-05-21T22:00:21.465Z"
     }
   ],
   "emailOtps": [
@@ -113,6 +196,46 @@
       "expiresAt": "2026-05-20T21:14:05.728Z",
       "used": false,
       "createdAt": "2026-05-20T21:04:05.729Z"
+    },
+    {
+      "id": "otp-a1hlwpgch",
+      "email": "larajeani.innov8it@gmail.com",
+      "otp": "114617",
+      "purpose": "login_verify",
+      "expiresAt": "2026-05-20T22:02:17.505Z",
+      "used": false,
+      "createdAt": "2026-05-20T21:52:17.506Z"
+    },
+    {
+      "id": "otp-4o1got45x",
+      "email": "jonasv.innov8it@gmail.com",
+      "otp": "517324",
+      "purpose": "signup_verify",
+      "expiresAt": "2026-05-21T10:58:14.876Z",
+      "used": false,
+      "createdAt": "2026-05-21T10:48:14.877Z"
+    }
+  ],
+  "videoSessions": [
+    {
+      "id": "vid-uy27vu16y",
+      "consultationId": "con-dv0u2tc16",
+      "status": "ENDED",
+      "roomId": "healthko-con-dv0u2tc16-c361888a7dd64bc1",
+      "startedAt": "2026-05-21T22:00:47.304Z",
+      "endedAt": "2026-05-21T22:07:39.689Z",
+      "createdAt": "2026-05-21T18:38:29.389Z",
+      "updatedAt": "2026-05-21T22:07:39.689Z"
+    },
+    {
+      "id": "vid-j5yaoumhu",
+      "consultationId": "con-mq2d80kwy",
+      "status": "ENDED",
+      "roomId": "healthko-con-mq2d80kwy-b62b52561f85f024",
+      "startedAt": "2026-05-21T20:18:37.298Z",
+      "endedAt": "2026-05-21T20:19:00.294Z",
+      "createdAt": "2026-05-21T18:41:49.827Z",
+      "updatedAt": "2026-05-21T20:19:00.294Z"
     }
   ]
 }

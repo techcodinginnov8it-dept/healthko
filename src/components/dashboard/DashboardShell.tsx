@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import type { ReactNode } from "react";
 import type { DashboardRole, ModuleId } from "@/lib/dashboard/types";
 
@@ -9,6 +8,81 @@ export type DashboardNavItem<TModule extends ModuleId> = {
   label: string;
   badge?: number;
 };
+
+function NavIcon({ id }: { id: ModuleId }) {
+  const iconClass = "h-4 w-4";
+
+  switch (id) {
+    case "overview":
+      return (
+        <svg className={iconClass} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+          <path d="M3 13h8V3H3v10Z" />
+          <path d="M13 21h8V11h-8v10Z" />
+          <path d="M13 3v6h8V3h-8Z" />
+          <path d="M3 21h8v-6H3v6Z" />
+        </svg>
+      );
+    case "schedule":
+    case "book":
+      return (
+        <svg className={iconClass} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+          <path d="M8 2v4" />
+          <path d="M16 2v4" />
+          <path d="M3 10h18" />
+          <rect x="3" y="4" width="18" height="18" rx="3" />
+          <path d="m9 16 2 2 4-5" />
+        </svg>
+      );
+    case "live":
+      return (
+        <svg className={iconClass} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+          <path d="M15 10.5 21 7v10l-6-3.5" />
+          <rect x="3" y="6" width="12" height="12" rx="3" />
+        </svg>
+      );
+    case "patients":
+      return (
+        <svg className={iconClass} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+          <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
+          <circle cx="9" cy="7" r="4" />
+          <path d="M22 21v-2a4 4 0 0 0-3-3.87" />
+          <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+        </svg>
+      );
+    case "history":
+    case "prescriptions":
+      return (
+        <svg className={iconClass} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z" />
+          <path d="M14 2v6h6" />
+          <path d="M12 18v-6" />
+          <path d="M9 15h6" />
+        </svg>
+      );
+    case "settings":
+      return (
+        <svg className={iconClass} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+          <path d="M12.22 2h-.44a2 2 0 0 0-2 2l-.13.72a2 2 0 0 1-2.83 1.17l-.64-.36a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.61.43a2 2 0 0 1 0 3.4l-.61.43a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.64-.36a2 2 0 0 1 2.83 1.17l.13.72a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2l.13-.72a2 2 0 0 1 2.83-1.17l.64.36a2 2 0 0 0 2.73-.73l.22-.38a2 2 0 0 0-.73-2.73l-.61-.43a2 2 0 0 1 0-3.4l.61-.43a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.64.36a2 2 0 0 1-2.83-1.17L14.22 4a2 2 0 0 0-2-2Z" />
+          <circle cx="12" cy="12" r="3" />
+        </svg>
+      );
+    default:
+      return (
+        <svg className={iconClass} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+          <circle cx="12" cy="12" r="9" />
+          <path d="M12 8v4l3 2" />
+        </svg>
+      );
+  }
+}
+
+function CollapseIcon({ collapsed }: { collapsed: boolean }) {
+  return (
+    <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" aria-hidden="true">
+      {collapsed ? <path d="m9 18 6-6-6-6" /> : <path d="m15 18-6-6 6-6" />}
+    </svg>
+  );
+}
 
 export function DashboardShell<TModule extends ModuleId>({
   role,
@@ -48,6 +122,7 @@ export function DashboardShell<TModule extends ModuleId>({
   const navIdle = isDoctor
     ? "text-slate-400 hover:bg-slate-900 hover:text-white"
     : "text-slate-500 hover:bg-slate-100 hover:text-slate-950";
+  const overviewModule = navItems.find((item) => item.id === "overview")?.id;
 
   return (
     <div className={`min-h-screen ${shellBg} font-sans lg:flex`}>
@@ -57,7 +132,16 @@ export function DashboardShell<TModule extends ModuleId>({
       >
         <div className="space-y-6">
           <div className="flex items-center justify-between gap-3">
-            <Link href="/" className="flex items-center gap-1 select-none" aria-label="HealthKo home">
+            <button
+              type="button"
+              onClick={() => {
+                if (overviewModule) {
+                  onNavigate(overviewModule);
+                }
+              }}
+              className="flex items-center gap-1 select-none text-left"
+              aria-label="Open dashboard overview"
+            >
               <span className="font-display text-xl tracking-tight">
                 <span className="text-brand-red font-black">H</span>
                 {!collapsed && (
@@ -68,14 +152,14 @@ export function DashboardShell<TModule extends ModuleId>({
                   </>
                 )}
               </span>
-            </Link>
+            </button>
             <button
               type="button"
               onClick={onToggleCollapsed}
-              className={`rounded-lg border px-2 py-1 text-xs font-black ${isDoctor ? "border-slate-800 text-slate-300" : "border-slate-200 text-slate-600"}`}
+              className={`flex h-8 w-8 items-center justify-center rounded-lg border ${isDoctor ? "border-slate-800 text-slate-300" : "border-slate-200 text-slate-600"}`}
               aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
             >
-              {collapsed ? ">" : "<"}
+              <CollapseIcon collapsed={collapsed} />
             </button>
           </div>
 
@@ -94,8 +178,8 @@ export function DashboardShell<TModule extends ModuleId>({
                   aria-current={isActive ? "page" : undefined}
                   title={collapsed ? item.label : undefined}
                 >
-                  <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-current/10 text-xs uppercase">
-                    {item.label.slice(0, 1)}
+                  <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-current/10">
+                    <NavIcon id={item.id} />
                   </span>
                   {!collapsed && <span className="min-w-0 flex-1 leading-tight">{item.label}</span>}
                   {!collapsed && item.badge ? (
@@ -161,10 +245,11 @@ export function DashboardShell<TModule extends ModuleId>({
                 key={item.id}
                 type="button"
                 onClick={() => onNavigate(item.id)}
-                className={`shrink-0 rounded-full px-3 py-2 text-xs font-black ${
+                className={`flex shrink-0 items-center gap-2 rounded-full px-3 py-2 text-xs font-black ${
                   activeModule === item.id ? "bg-brand-teal text-white" : isDoctor ? "bg-slate-900 text-slate-300" : "bg-slate-100 text-slate-600"
                 }`}
               >
+                <NavIcon id={item.id} />
                 {item.label}
               </button>
             ))}

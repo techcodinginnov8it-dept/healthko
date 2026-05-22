@@ -39,6 +39,11 @@ export type DashboardDoctor = {
   rating?: number;
   reviewCount?: number;
   isVerified?: boolean;
+  bio?: string | null;
+  image?: string | null;
+  licenseNumber?: string | null;
+  licenseState?: string | null;
+  yearsExp?: number | null;
 };
 
 export type DashboardPatient = {
@@ -50,6 +55,11 @@ export type DashboardPatient = {
   countryCode?: string;
   dob: string;
   gender: string | null;
+  address?: string | null;
+  city?: string | null;
+  state?: string | null;
+  zipCode?: string | null;
+  country?: string | null;
   emailVerified: boolean;
 };
 
@@ -82,20 +92,37 @@ export type DoctorAppointment = {
 
 export type RealtimeEvent =
   | {
-      type: "appointment:created" | "appointment:updated";
+      type: "appointment:created" | "appointment:updated" | "appointment:rescheduled" | "appointment:cancelled" | "appointment:referred";
       appointmentId: string;
       actorRole: DashboardRole;
+      targetDoctorId?: string;
+      scheduledAt?: string;
+      title?: string;
+      body?: string;
     }
   | {
-      type: "session:joined" | "session:ended" | "session:reconnected";
+      type: "session:joined" | "session:started" | "session:ended" | "session:reconnected";
       appointmentId: string;
       actorRole: DashboardRole;
+      roomId?: string;
+      title?: string;
+      body?: string;
     }
   | {
       type: "message:new";
       appointmentId: string;
       actorRole: DashboardRole;
+      messageId: string;
       text: string;
+      time: string;
+      attachment?: ChatAttachment;
+    }
+  | {
+      type: "media:updated";
+      appointmentId: string;
+      actorRole: DashboardRole;
+      cameraOn: boolean;
+      micOn: boolean;
     }
   | {
       type: "notification:new";
@@ -109,4 +136,12 @@ export type ChatMessage = {
   sender: DashboardRole;
   text: string;
   time: string;
+  attachment?: ChatAttachment;
+};
+
+export type ChatAttachment = {
+  name: string;
+  size: number;
+  type: string;
+  dataUrl?: string;
 };

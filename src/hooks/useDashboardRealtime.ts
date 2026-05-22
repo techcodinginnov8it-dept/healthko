@@ -1,80 +1,111 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { io, type Socket } from "socket.io-client";
 import type { RealtimeEvent } from "@/lib/dashboard/types";
 
-const CHANNEL_NAME = "healthko-dashboard-realtime";
+const SOCKET_PATH = "/api/socket";
 
 type ConnectionState = "connected" | "reconnecting" | "offline";
 
+function getConnectionSnapshot(): ConnectionState {
+  return navigator.onLine ? "connected" : "offline";
+}
+
 export function useDashboardRealtime(onEvent?: (event: RealtimeEvent) => void) {
-  const [connectionState, setConnectionState] = useState<ConnectionState>(() => {
-    if (typeof navigator === "undefined") {
-      return "connected";
-    }
+  const connectionState = useSyncExternalStore<ConnectionState>(
+    (onStoreChange) => {
+      window.addEventListener("online", onStoreChange);
+      window.addEventListener("offline", onStoreChange);
 
-    return navigator.onLine ? "connected" : "offline";
-  });
+      return () => {
+        window.removeEventListener("online", onStoreChange);
+        window.removeEventListener("offline", onStoreChange);
+      };
+    },
+    getConnectionSnapshot,
+    () => "connected"
+  );
+  const [reconnectState, setReconnectState] = useState<ConnectionState | null>(null);
   const [lastEvent, setLastEvent] = useState<RealtimeEvent | null>(null);
+  const socketRef = useRef<Socket | null>(null);
+  const seenEventKeysRef = useRef(new Set<string>());
 
-  const channel = useMemo(() => {
-    if (typeof window === "undefined" || !("BroadcastChannel" in window)) {
-      return null;
+  const getEventKey = useCallback((event: RealtimeEvent) => {
+    if (event.type === "message:new") {
+      return `message:new:${event.messageId}`;
     }
 
-    return new BroadcastChannel(CHANNEL_NAME);
+    return null;
   }, []);
 
-  useEffect(() => {
-    const goOnline = () => setConnectionState("connected");
-    const goOffline = () => setConnectionState("offline");
+  const commitEvent = useCallback(
+    (event: RealtimeEvent) => {
+      const key = getEventKey(event);
+      if (key && seenEventKeysRef.current.has(key)) {
+        return;
+      }
 
-    window.addEventListener("online", goOnline);
-    window.addEventListener("offline", goOffline);
+      if (key) {
+        seenEventKeysRef.current.add(key);
+        if (seenEventKeysRef.current.size > 300) {
+          const oldestKey = seenEventKeysRef.current.values().next().value;
+          if (oldestKey) {
+            seenEventKeysRef.current.delete(oldestKey);
+          }
+        }
+      }
 
-    return () => {
-      window.removeEventListener("online", goOnline);
-      window.removeEventListener("offline", goOffline);
-    };
-  }, []);
-
-  useEffect(() => {
-    if (!channel) {
-      return;
-    }
-
-    const handleMessage = (message: MessageEvent<RealtimeEvent>) => {
-      const event = message.data as RealtimeEvent;
       setLastEvent(event);
       onEvent?.(event);
-    };
+    },
+    [getEventKey, onEvent]
+  );
 
-    channel.addEventListener("message", handleMessage);
+  useEffect(() => {
+    const socket = io({
+      path: SOCKET_PATH,
+      transports: ["websocket", "polling"],
+      reconnection: true,
+    });
+    socketRef.current = socket;
+
+    const handleMessage = (event: RealtimeEvent) => commitEvent(event);
+
+    socket.on("dashboard:event", handleMessage);
+    socket.on("reconnect_attempt", () => setReconnectState("reconnecting"));
+    socket.on("connect", () => setReconnectState(null));
+    socket.on("disconnect", () => setReconnectState("offline"));
 
     return () => {
-      channel.removeEventListener("message", handleMessage);
-      channel.close();
+      socket.off("dashboard:event", handleMessage);
+      socket.disconnect();
+      socketRef.current = null;
     };
-  }, [channel, onEvent]);
+  }, [commitEvent]);
 
   const publish = useCallback(
     (event: RealtimeEvent) => {
-      setLastEvent(event);
-      onEvent?.(event);
-      channel?.postMessage(event);
+      commitEvent(event);
+      socketRef.current?.emit("dashboard:event", event);
     },
-    [channel, onEvent]
+    [commitEvent]
   );
 
   const simulateReconnect = useCallback(() => {
-    setConnectionState("reconnecting");
-    window.setTimeout(() => setConnectionState("connected"), 900);
+    setReconnectState("reconnecting");
+    window.setTimeout(() => setReconnectState(null), 900);
+  }, []);
+
+  const joinVideoRoom = useCallback((roomId: string) => {
+    socketRef.current?.emit("webrtc:join-room", { roomId });
   }, []);
 
   return {
-    connectionState,
+    connectionState: reconnectState || connectionState,
     lastEvent,
     publish,
+    joinVideoRoom,
     simulateReconnect,
   };
 }
