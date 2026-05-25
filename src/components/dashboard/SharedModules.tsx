@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { ChatAttachment, ChatMessage, DashboardRole } from "@/lib/dashboard/types";
 import { formatDate, formatDateTime } from "@/lib/dashboard/format";
 
@@ -25,12 +25,10 @@ function MicControlIcon({ off = false }: { off?: boolean }) {
   );
 }
 
-function PhoneOffIcon() {
+function PhoneDownIcon() {
   return (
-    <svg aria-hidden="true" viewBox="0 0 24 24" className="h-7 w-7" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M6.6 10.8c3.5-2.3 7.3-2.3 10.8 0" />
-      <path d="m4.2 13.2 2.1-2.1a2 2 0 0 1 2.2-.4l1.3.6a2 2 0 0 0 1.6.1 7.2 7.2 0 0 1 1.2 0 2 2 0 0 0 1.6-.1l1.3-.6a2 2 0 0 1 2.2.4l2.1 2.1a1.6 1.6 0 0 1 .1 2.2l-1.5 1.7a2 2 0 0 1-2 .6c-3-.8-5.8-.8-8.8 0a2 2 0 0 1-2-.6l-1.5-1.7a1.6 1.6 0 0 1 .1-2.2Z" />
-      <path d="M5 5l14 14" />
+    <svg aria-hidden="true" viewBox="0 0 24 24" className="h-6 w-6 rotate-[135deg]" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M22 16.9v3a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3.1 19.4 19.4 0 0 1-6-6A19.8 19.8 0 0 1 2.1 4.2 2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.7c.1 1 .4 2 .7 2.9a2 2 0 0 1-.4 2.1L8.1 10a16 16 0 0 0 6 6l1.3-1.3a2 2 0 0 1 2.1-.4c.9.3 1.9.6 2.9.7a2 2 0 0 1 1.6 1.9Z" />
     </svg>
   );
 }
@@ -42,8 +40,10 @@ export function StatGrid({
   stats: { label: string; value: string | number; helper: string }[];
   tone?: "light" | "dark";
 }) {
+  const gridColumns = stats.length >= 4 ? "md:grid-cols-2 xl:grid-cols-4" : "md:grid-cols-3";
+
   return (
-    <div className="grid gap-4 md:grid-cols-3">
+    <div className={`grid gap-4 ${gridColumns}`}>
       {stats.map((stat) => (
         <div
           key={stat.label}
@@ -135,6 +135,18 @@ export function ChatPanel({
 }) {
   const [draft, setDraft] = useState("");
   const [attachment, setAttachment] = useState<ChatAttachment | undefined>();
+  const visibleMessages = useMemo(() => {
+    const seen = new Set<string>();
+
+    return messages.filter((message) => {
+      if (seen.has(message.id)) {
+        return false;
+      }
+
+      seen.add(message.id);
+      return true;
+    });
+  }, [messages]);
 
   const handleFile = (file?: File) => {
     if (!file) {
@@ -160,8 +172,8 @@ export function ChatPanel({
         <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-teal">Messages</p>
       </header>
       <div className="flex-1 space-y-3 overflow-y-auto p-4">
-        {messages.length ? (
-          messages.map((message) => {
+        {visibleMessages.length ? (
+          visibleMessages.map((message) => {
             const mine = message.sender === role;
 
             return (
@@ -216,6 +228,34 @@ export function ChatPanel({
   );
 }
 
+function VideoStream({ stream, muted, active }: { stream: MediaStream | null; muted?: boolean; active: boolean }) {
+  const ref = useRef<HTMLVideoElement>(null);
+  useEffect(() => {
+    const video = ref.current;
+    if (!video) {
+      return;
+    }
+
+    video.srcObject = stream;
+
+    return () => {
+      video.srcObject = null;
+    };
+  }, [stream]);
+
+  if (!stream || !active) return null;
+
+  return (
+    <video
+      ref={ref}
+      autoPlay
+      playsInline
+      muted={muted}
+      className="absolute inset-0 h-full w-full object-cover rounded-xl"
+    />
+  );
+}
+
 export function LiveConsultationPanel({
   role,
   counterpartName,
@@ -230,6 +270,10 @@ export function LiveConsultationPanel({
   onEnd,
   chat,
   documentation,
+  localStream = null,
+  remoteStream = null,
+  connectionState = "new",
+  mediaError = null,
 }: {
   role: DashboardRole;
   counterpartName: string;
@@ -244,12 +288,26 @@ export function LiveConsultationPanel({
   onEnd: () => void;
   chat: React.ReactNode;
   documentation?: React.ReactNode;
+  localStream?: MediaStream | null;
+  remoteStream?: MediaStream | null;
+  connectionState?: RTCPeerConnectionState;
+  mediaError?: string | null;
 }) {
   const statusLabel = status === "connected" ? "Connected" : role === "doctor" ? "Waiting for Patient" : "Waiting room";
+  const localVideoActive = Boolean(localStream && isCameraOn);
+  const remoteVideoActive = Boolean(remoteStream && counterpartCameraOn);
+  const connectionLabel =
+    connectionState === "connected"
+      ? "Media connected"
+      : connectionState === "connecting"
+        ? "Connecting media"
+        : connectionState === "failed"
+          ? "Media connection failed"
+          : "Media ready";
 
   return (
     <div className="grid gap-4 xl:grid-cols-12">
-      <section className="rounded-xl border border-slate-800 bg-slate-950 text-white xl:col-span-7">
+      <section className="relative rounded-xl border border-slate-800 bg-slate-950 text-white xl:col-span-7">
         <header className="flex flex-col gap-3 border-b border-slate-800 p-4 md:flex-row md:items-center md:justify-between">
           <div>
             <p className="text-[10px] font-black uppercase tracking-[0.2em] text-brand-teal">Live Consultation</p>
@@ -260,10 +318,21 @@ export function LiveConsultationPanel({
             {statusLabel}
           </span>
         </header>
-        <div className="grid min-h-[420px] gap-4 p-4 md:grid-cols-2">
-          <div className="relative overflow-hidden rounded-xl border border-slate-800 bg-slate-900">
-            <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,_rgba(20,184,166,0.28),_transparent_45%)]" />
-            <div className="relative flex h-full items-center justify-center p-6 text-center">
+        <div className="flex flex-wrap items-center gap-2 border-b border-slate-800 px-4 py-3">
+          <span className={`rounded-full px-2.5 py-1 text-[10px] font-black uppercase ${connectionState === "failed" ? "bg-red-500/15 text-red-200" : "bg-white/10 text-slate-200"}`}>
+            {connectionLabel}
+          </span>
+          {mediaError && (
+            <span className="rounded-full bg-red-500/15 px-2.5 py-1 text-[10px] font-bold text-red-100">
+              {mediaError}
+            </span>
+          )}
+        </div>
+        <div className="relative grid min-h-[520px] gap-4 p-4 pb-28 md:grid-cols-2">
+          <div className={`relative min-h-[420px] overflow-hidden rounded-xl border border-slate-800 bg-slate-900 ${remoteVideoActive ? "md:col-span-2" : ""}`}>
+            <VideoStream stream={remoteStream} active={counterpartCameraOn} />
+            <div className={`absolute inset-0 bg-[radial-gradient(circle_at_top,_rgba(20,184,166,0.28),_transparent_45%)] ${remoteVideoActive ? "hidden" : ""}`} />
+            <div className={`relative flex h-full items-center justify-center p-6 text-center ${remoteVideoActive ? "hidden" : ""}`}>
               <div>
                 <div className={`mx-auto h-16 w-16 rounded-full ${counterpartCameraOn ? "bg-brand-teal/20" : "bg-brand-red/30"}`} />
                 <p className="mt-4 text-sm font-black">{counterpartName}</p>
@@ -275,26 +344,28 @@ export function LiveConsultationPanel({
               </div>
             </div>
           </div>
-          <div className="relative overflow-hidden rounded-xl border border-slate-800 bg-slate-900">
-            <div className="relative flex h-full items-center justify-center p-6 text-center">
+          <div className={`relative overflow-hidden rounded-xl border border-slate-800 bg-slate-900 ${remoteVideoActive ? "absolute bottom-32 right-6 z-10 h-32 w-44 shadow-2xl shadow-black/50 md:bottom-28 md:right-8 md:h-40 md:w-56" : "min-h-[420px]"}`}>
+            <VideoStream stream={localStream} muted={true} active={isCameraOn} />
+            <div className={`relative flex h-full items-center justify-center p-6 text-center ${localVideoActive ? "hidden" : ""}`}>
               <div>
                 <div className={`mx-auto h-16 w-16 rounded-full ${isCameraOn ? "bg-slate-700" : "bg-brand-red/30"}`} />
                 <p className="mt-4 text-sm font-black">Your stream</p>
-                <p className="mt-1 text-xs text-slate-400">{isCameraOn ? "Camera active" : "Camera disabled"}</p>
+                <p className="mt-1 text-xs text-slate-400">{isCameraOn ? "Waiting for camera access" : "Camera disabled"}</p>
               </div>
             </div>
           </div>
         </div>
-        <footer className="flex flex-wrap items-center justify-center gap-3 border-t border-slate-800 p-4">
+        <footer className="absolute bottom-5 left-1/2 flex -translate-x-1/2 flex-wrap items-center justify-center gap-4 rounded-full border border-white/10 bg-[rgba(24,24,27,0.7)] px-5 py-3 shadow-2xl shadow-black/30 backdrop-blur-[12px]">
+          <div className="flex items-center gap-4">
           <button
             type="button"
             onClick={onToggleCamera}
             aria-label={isCameraOn ? "Turn camera off" : "Turn camera on"}
             title={isCameraOn ? "Turn camera off" : "Turn camera on"}
-            className={`grid h-12 w-12 place-items-center rounded-full border transition ${
+            className={`grid h-12 w-12 place-items-center rounded-full border transition focus:outline-none focus:ring-4 ${
               isCameraOn
-                ? "border-white/10 bg-slate-800 text-white hover:bg-slate-700"
-                : "border-red-200 bg-red-50 text-brand-red hover:bg-red-100"
+                ? "border-white/15 bg-white/10 text-white hover:bg-white/15 focus:ring-white/20"
+                : "border-red-300/40 bg-red-500/15 text-red-200 hover:bg-red-500/25 focus:ring-red-300/30"
             }`}
           >
             <VideoControlIcon off={!isCameraOn} />
@@ -304,22 +375,23 @@ export function LiveConsultationPanel({
             onClick={onToggleMic}
             aria-label={isMicOn ? "Mute microphone" : "Unmute microphone"}
             title={isMicOn ? "Mute microphone" : "Unmute microphone"}
-            className={`grid h-12 w-12 place-items-center rounded-full border transition ${
+            className={`grid h-12 w-12 place-items-center rounded-full border transition focus:outline-none focus:ring-4 ${
               isMicOn
-                ? "border-white/10 bg-slate-800 text-white hover:bg-slate-700"
-                : "border-red-200 bg-red-50 text-brand-red hover:bg-red-100"
+                ? "border-white/15 bg-white/10 text-white hover:bg-white/15 focus:ring-white/20"
+                : "border-red-300/40 bg-red-500/15 text-red-200 hover:bg-red-500/25 focus:ring-red-300/30"
             }`}
           >
             <MicControlIcon off={!isMicOn} />
           </button>
+          </div>
           <button
             type="button"
             onClick={onEnd}
             aria-label="End consultation"
             title="End consultation"
-            className="ml-2 grid h-14 w-14 place-items-center rounded-full bg-brand-red text-white shadow-lg shadow-red-950/30 transition hover:bg-red-700 focus:outline-none focus:ring-4 focus:ring-red-300"
+            className="grid h-14 w-14 place-items-center rounded-full bg-brand-red text-white shadow-lg shadow-red-950/40 transition hover:bg-red-700 focus:outline-none focus:ring-4 focus:ring-red-300"
           >
-            <PhoneOffIcon />
+            <PhoneDownIcon />
           </button>
         </footer>
       </section>
@@ -329,84 +401,6 @@ export function LiveConsultationPanel({
         {chat}
       </div>
     </div>
-  );
-}
-
-export function WaitingRoomPanel({
-  doctorName,
-  appointmentTime,
-  isCameraOn,
-  isMicOn,
-  isSpeakerReady,
-  canJoin,
-  notice,
-  error,
-  onToggleCamera,
-  onToggleMic,
-  onToggleSpeaker,
-  onJoin,
-}: {
-  doctorName: string;
-  appointmentTime: Date | string;
-  isCameraOn: boolean;
-  isMicOn: boolean;
-  isSpeakerReady: boolean;
-  canJoin: boolean;
-  notice?: string;
-  error?: string;
-  onToggleCamera: () => void;
-  onToggleMic: () => void;
-  onToggleSpeaker: () => void;
-  onJoin: () => void;
-}) {
-  return (
-    <section className="grid gap-4 xl:grid-cols-12">
-      <div className="rounded-xl border border-slate-200 bg-white p-5 xl:col-span-7">
-        <p className="text-[10px] font-black uppercase tracking-[0.2em] text-brand-teal">Waiting Room</p>
-        <h2 className="mt-2 text-lg font-black text-slate-950">{doctorName}</h2>
-        <p className="mt-1 text-xs font-semibold text-slate-500">{formatDateTime(appointmentTime)}</p>
-        <div className="mt-5 grid min-h-[320px] place-items-center rounded-xl border border-slate-200 bg-slate-50 p-6 text-center">
-          <div>
-            <div className="mx-auto h-20 w-20 rounded-full bg-brand-teal/10" />
-            <p className="mt-4 text-sm font-black text-slate-950">Device preparation only</p>
-            <p className="mt-2 max-w-md text-sm font-semibold text-slate-500">
-              The consultation room is locked until your doctor starts the secure session.
-            </p>
-          </div>
-        </div>
-      </div>
-
-      <div className="space-y-4 xl:col-span-5">
-        <section className="rounded-xl border border-slate-200 bg-white p-5">
-          <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-teal">Device Checks</p>
-          <div className="mt-4 space-y-3">
-            <button type="button" onClick={onToggleCamera} className="flex w-full items-center justify-between rounded-lg border border-slate-200 px-3 py-2 text-sm font-black text-slate-800">
-              Camera <span className={isCameraOn ? "text-emerald-600" : "text-brand-red"}>{isCameraOn ? "Ready" : "Off"}</span>
-            </button>
-            <button type="button" onClick={onToggleMic} className="flex w-full items-center justify-between rounded-lg border border-slate-200 px-3 py-2 text-sm font-black text-slate-800">
-              Microphone <span className={isMicOn ? "text-emerald-600" : "text-brand-red"}>{isMicOn ? "Ready" : "Muted"}</span>
-            </button>
-            <button type="button" onClick={onToggleSpeaker} className="flex w-full items-center justify-between rounded-lg border border-slate-200 px-3 py-2 text-sm font-black text-slate-800">
-              Speaker <span className={isSpeakerReady ? "text-emerald-600" : "text-brand-red"}>{isSpeakerReady ? "Ready" : "Check needed"}</span>
-            </button>
-          </div>
-        </section>
-
-        <section className="rounded-xl border border-slate-200 bg-white p-5">
-          <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-teal">Room Access</p>
-          {notice && <div className="mt-4 rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-xs font-bold text-emerald-700">{notice}</div>}
-          {error && <div className="mt-4 rounded-lg border border-brand-red/20 bg-brand-red/10 p-3 text-xs font-bold text-brand-red">{error}</div>}
-          <button
-            type="button"
-            disabled={!canJoin}
-            onClick={onJoin}
-            className="mt-4 w-full rounded-lg bg-brand-teal px-4 py-3 text-sm font-black text-white disabled:bg-slate-300"
-          >
-            {canJoin ? "Join Consultation" : "Waiting for Doctor"}
-          </button>
-        </section>
-      </div>
-    </section>
   );
 }
 

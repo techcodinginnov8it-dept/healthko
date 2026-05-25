@@ -127,7 +127,7 @@ export function DashboardShell<TModule extends ModuleId>({
   return (
     <div className={`min-h-screen ${shellBg} font-sans lg:flex`}>
       <aside
-        className={`hidden lg:flex ${collapsed ? "w-24" : "w-80"} shrink-0 flex-col justify-between border-r ${sidebarBg} p-5 transition-all duration-300`}
+        className={`hidden lg:sticky lg:top-0 lg:flex h-screen ${collapsed ? "w-24" : "w-80"} shrink-0 flex-col justify-between overflow-y-auto border-r ${sidebarBg} p-5 transition-all duration-300`}
         aria-label={`${role} dashboard navigation`}
       >
         <div className="space-y-6">

@@ -29,7 +29,12 @@ export function useDashboardRealtime(onEvent?: (event: RealtimeEvent) => void) {
   const [reconnectState, setReconnectState] = useState<ConnectionState | null>(null);
   const [lastEvent, setLastEvent] = useState<RealtimeEvent | null>(null);
   const socketRef = useRef<Socket | null>(null);
+  const onEventRef = useRef(onEvent);
   const seenEventKeysRef = useRef(new Set<string>());
+
+  useEffect(() => {
+    onEventRef.current = onEvent;
+  }, [onEvent]);
 
   const getEventKey = useCallback((event: RealtimeEvent) => {
     if (event.type === "message:new") {
@@ -57,9 +62,9 @@ export function useDashboardRealtime(onEvent?: (event: RealtimeEvent) => void) {
       }
 
       setLastEvent(event);
-      onEvent?.(event);
+      onEventRef.current?.(event);
     },
-    [getEventKey, onEvent]
+    [getEventKey]
   );
 
   useEffect(() => {
@@ -102,11 +107,14 @@ export function useDashboardRealtime(onEvent?: (event: RealtimeEvent) => void) {
     socketRef.current?.emit("webrtc:join-room", { roomId });
   }, []);
 
+  const getSocket = useCallback(() => socketRef.current, []);
+
   return {
     connectionState: reconnectState || connectionState,
     lastEvent,
     publish,
     joinVideoRoom,
+    getSocket,
     simulateReconnect,
   };
 }

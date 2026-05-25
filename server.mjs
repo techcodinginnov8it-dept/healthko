@@ -32,6 +32,12 @@ io.on("connection", (socket) => {
     }
   });
 
+  socket.on("webrtc:peer-ready", ({ roomId, role }) => {
+    if (typeof roomId === "string" && roomId) {
+      socket.to(roomId).emit("webrtc:peer-ready", { role });
+    }
+  });
+
   socket.on("webrtc:offer", ({ roomId, offer }) => {
     if (typeof roomId === "string" && roomId) {
       socket.to(roomId).emit("webrtc:offer", { offer });

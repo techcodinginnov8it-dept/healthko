@@ -84,15 +84,17 @@ export function useConsultationSession<TAppointment extends { id: string }>({
   );
 
   const endSession = useCallback((broadcast = true) => {
-    setState((current) => {
-      if (broadcast && current.activeAppointment) {
-        publish({
-          type: "session:ended",
-          appointmentId: current.activeAppointment.id,
-          actorRole: role,
-        });
-      }
+    const appointment = state.activeAppointment;
 
+    if (broadcast && appointment) {
+      publish({
+        type: "session:ended",
+        appointmentId: appointment.id,
+        actorRole: role,
+      });
+    }
+
+    setState((current) => {
       return {
         ...current,
         activeAppointment: null,
@@ -101,39 +103,49 @@ export function useConsultationSession<TAppointment extends { id: string }>({
         accessToken: "",
       };
     });
-  }, [publish, role]);
+  }, [publish, role, state.activeAppointment]);
 
   const toggleCamera = useCallback(() => {
+    const isCameraOn = !state.isCameraOn;
+    if (state.activeAppointment) {
+      publish({
+        type: "media:updated",
+        appointmentId: state.activeAppointment.id,
+        actorRole: role,
+        cameraOn: isCameraOn,
+        micOn: state.isMicOn,
+      });
+    }
+
     setState((current) => {
-      const isCameraOn = !current.isCameraOn;
-      if (current.activeAppointment) {
-        publish({
-          type: "media:updated",
-          appointmentId: current.activeAppointment.id,
-          actorRole: role,
-          cameraOn: isCameraOn,
-          micOn: current.isMicOn,
-        });
+      if (current.isCameraOn === isCameraOn) {
+        return current;
       }
+
       return { ...current, isCameraOn };
     });
-  }, [publish, role]);
+  }, [publish, role, state.activeAppointment, state.isCameraOn, state.isMicOn]);
 
   const toggleMic = useCallback(() => {
+    const isMicOn = !state.isMicOn;
+    if (state.activeAppointment) {
+      publish({
+        type: "media:updated",
+        appointmentId: state.activeAppointment.id,
+        actorRole: role,
+        cameraOn: state.isCameraOn,
+        micOn: isMicOn,
+      });
+    }
+
     setState((current) => {
-      const isMicOn = !current.isMicOn;
-      if (current.activeAppointment) {
-        publish({
-          type: "media:updated",
-          appointmentId: current.activeAppointment.id,
-          actorRole: role,
-          cameraOn: current.isCameraOn,
-          micOn: isMicOn,
-        });
+      if (current.isMicOn === isMicOn) {
+        return current;
       }
+
       return { ...current, isMicOn };
     });
-  }, [publish, role]);
+  }, [publish, role, state.activeAppointment, state.isCameraOn, state.isMicOn]);
 
   const toggleSpeaker = useCallback(() => {
     setState((current) => ({ ...current, isSpeakerReady: !current.isSpeakerReady }));
@@ -146,28 +158,33 @@ export function useConsultationSession<TAppointment extends { id: string }>({
         return;
       }
 
+      const appointment = state.activeAppointment;
+      if (!appointment) {
+        return;
+      }
+
+      const message: ChatMessage = {
+        id: `${appointment.id}-${role}-${Date.now()}`,
+        sender: role,
+        text: trimmed || (attachment ? `Shared ${attachment.name}` : ""),
+        time: formatTimeNow(),
+        attachment,
+      };
+
+      publish({
+        type: "message:new",
+        appointmentId: appointment.id,
+        actorRole: role,
+        messageId: message.id,
+        text: message.text,
+        time: message.time,
+        attachment,
+      });
+
       setState((current) => {
-        if (!current.activeAppointment) {
+        if (!current.activeAppointment || current.activeAppointment.id !== appointment.id || current.messages.some((item) => item.id === message.id)) {
           return current;
         }
-
-        const message: ChatMessage = {
-          id: `${current.activeAppointment.id}-${Date.now()}`,
-          sender: role,
-          text: trimmed || (attachment ? `Shared ${attachment.name}` : ""),
-          time: formatTimeNow(),
-          attachment,
-        };
-
-        publish({
-          type: "message:new",
-          appointmentId: current.activeAppointment.id,
-          actorRole: role,
-          messageId: message.id,
-          text: message.text,
-          time: message.time,
-          attachment,
-        });
 
         return {
           ...current,
@@ -175,7 +192,7 @@ export function useConsultationSession<TAppointment extends { id: string }>({
         };
       });
     },
-    [publish, role]
+    [publish, role, state.activeAppointment]
   );
 
   const receiveRealtimeEvent = useCallback((event: RealtimeEvent | null) => {

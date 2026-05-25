@@ -126,12 +126,25 @@ async function issueEmailOtp({
   purpose: OtpPurpose;
   firstName?: string;
 }) {
-  await sendPatientSupabaseOtp({
-    email,
-    purpose,
-    firstName,
-  });
+  try {
+    await sendPatientSupabaseOtp({
+      email,
+      purpose,
+      firstName,
+    });
+  } catch (error: any) {
+    if (
+      !process.env.NEXT_PUBLIC_SUPABASE_URL ||
+      error.message?.includes("Supabase Auth is not configured")
+    ) {
+      console.warn(`[Mock OTP Bypass] Supabase not configured. Use OTP code '123456' for ${email}`);
+      mockDb.createEmailOtp(email, "123456", purpose, new Date(Date.now() + 10 * 60 * 1000));
+      return;
+    }
+    throw error;
+  }
 }
+
 
 async function verifySupabaseEmailOtp(email: string, otp: string) {
 

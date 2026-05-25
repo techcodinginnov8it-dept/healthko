@@ -19,6 +19,7 @@ import {
 import { useConsultationSession } from "@/hooks/useConsultationSession";
 import { useDashboardModule } from "@/hooks/useDashboardModule";
 import { useDashboardRealtime } from "@/hooks/useDashboardRealtime";
+import { useWebRTC } from "@/hooks/useWebRTC";
 import { formatDateTime } from "@/lib/dashboard/format";
 import type {
   DashboardDoctor,
@@ -94,6 +95,14 @@ export default function DoctorDashboardClient({ doctor, doctors, initialModule =
   const session = useConsultationSession<DoctorAppointment>({
     role: "doctor",
     publish: realtime.publish,
+  });
+  const webRTC = useWebRTC({
+    roomId: session.roomId,
+    role: "doctor",
+    getSocket: realtime.getSocket,
+    isCameraOn: session.isCameraOn,
+    isMicOn: session.isMicOn,
+    isActive: Boolean(session.roomId && (session.status === "waiting" || session.status === "connected")),
   });
   const receiveRealtimeEvent = session.receiveRealtimeEvent;
 
@@ -334,6 +343,10 @@ export default function DoctorDashboardClient({ doctor, doctors, initialModule =
             onToggleCamera={session.toggleCamera}
             onToggleMic={session.toggleMic}
             onEnd={handleEndSession}
+            localStream={webRTC.localStream}
+            remoteStream={webRTC.remoteStream}
+            connectionState={webRTC.connectionState}
+            mediaError={webRTC.error}
             chat={<ChatPanel role="doctor" messages={session.messages} onSend={session.sendMessage} />}
             documentation={
               <section className="rounded-xl border border-slate-800 bg-slate-900 p-4">
@@ -341,7 +354,12 @@ export default function DoctorDashboardClient({ doctor, doctors, initialModule =
                 <form onSubmit={handleComplete} className="mt-4 space-y-3">
                   {submitState.error && <div className="rounded-lg border border-brand-red/20 bg-brand-red/10 p-3 text-xs font-bold text-brand-red">{submitState.error}</div>}
                   {submitState.success && <div className="rounded-lg border border-emerald-900 bg-emerald-950/40 p-3 text-xs font-bold text-emerald-300">{submitState.success}</div>}
-                  <input value={diagnosisText} onChange={(event) => setDiagnosisText(event.target.value)} placeholder="Diagnosis / impression" className="w-full rounded-lg border border-slate-800 bg-slate-950 px-3 py-2 text-sm text-white outline-none focus:border-brand-teal" />
+                  <div className="rounded-xl border border-amber-400/20 border-l-4 border-l-amber-300 bg-amber-300/10 p-4">
+                    <p className="text-[10px] font-black uppercase tracking-[0.2em] text-amber-200">Chief Complaint</p>
+                    <p className="mt-2 text-sm font-semibold leading-relaxed text-amber-50">
+                      {diagnosisText || "No chief complaint was provided for this appointment."}
+                    </p>
+                  </div>
                   <textarea value={clinicalNotes} onChange={(event) => setClinicalNotes(event.target.value)} rows={4} placeholder="Consultation notes" className="w-full rounded-lg border border-slate-800 bg-slate-950 px-3 py-2 text-sm text-white outline-none focus:border-brand-teal" />
                   <input value={prescriptionText} onChange={(event) => setPrescriptionText(event.target.value)} placeholder="Prescription" className="w-full rounded-lg border border-slate-800 bg-slate-950 px-3 py-2 text-sm text-white outline-none focus:border-brand-teal" />
                   <button type="submit" disabled={submitState.loading} className="w-full rounded-lg bg-brand-teal px-4 py-2.5 text-xs font-black text-white disabled:bg-slate-800">
