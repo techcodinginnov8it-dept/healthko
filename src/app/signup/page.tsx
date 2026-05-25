@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 
@@ -39,6 +39,18 @@ export default function SignUpPage() {
   const [showOtpModal, setShowOtpModal] = useState(false);
   const [otpDigits, setOtpDigits] = useState(["", "", "", "", "", ""]);
   const [otpError, setOtpError] = useState("");
+  const passwordInputRef = useRef<HTMLInputElement>(null);
+  const confirmPasswordInputRef = useRef<HTMLInputElement>(null);
+
+  const syncPasswordStateFromDom = () => {
+    const nextPassword = passwordInputRef.current?.value ?? "";
+    const nextConfirmPassword = confirmPasswordInputRef.current?.value ?? "";
+
+    setPassword((currentPassword) => (currentPassword === nextPassword ? currentPassword : nextPassword));
+    setConfirmPassword((currentConfirmPassword) =>
+      currentConfirmPassword === nextConfirmPassword ? currentConfirmPassword : nextConfirmPassword
+    );
+  };
 
   useEffect(() => {
     if (!showOtpModal) {
@@ -51,6 +63,18 @@ export default function SignUpPage() {
 
     return () => window.clearTimeout(timer);
   }, [showOtpModal]);
+
+  useEffect(() => {
+    syncPasswordStateFromDom();
+
+    const syncTimer = window.setTimeout(syncPasswordStateFromDom, 250);
+    const delayedSyncTimer = window.setTimeout(syncPasswordStateFromDom, 1000);
+
+    return () => {
+      window.clearTimeout(syncTimer);
+      window.clearTimeout(delayedSyncTimer);
+    };
+  }, []);
 
   const activeCountry = countries.find((country) => country.code === countryCode) || countries[0];
   const digitsOnly = phone.replace(/\D/g, "");
@@ -448,11 +472,16 @@ export default function SignUpPage() {
                 </label>
                 <div className="relative">
                   <input
+                    ref={passwordInputRef}
                     type={showPassword ? "text" : "password"}
                     required
+                    name="password"
+                    autoComplete="new-password"
                     maxLength={12}
                     value={password}
                     onChange={(event) => setPassword(event.target.value)}
+                    onInput={syncPasswordStateFromDom}
+                    onFocus={syncPasswordStateFromDom}
                     placeholder="........"
                     className={`w-full px-4 py-2.5 pr-10 rounded-xl border text-xs sm:text-sm focus:outline-none focus:ring-1 ${
                       password && !isPasswordValid
@@ -512,11 +541,16 @@ export default function SignUpPage() {
                   Retype Password
                 </label>
                 <input
+                  ref={confirmPasswordInputRef}
                   type={showPassword ? "text" : "password"}
                   required
+                  name="confirmPassword"
+                  autoComplete="new-password"
                   maxLength={12}
                   value={confirmPassword}
                   onChange={(event) => setConfirmPassword(event.target.value)}
+                  onInput={syncPasswordStateFromDom}
+                  onFocus={syncPasswordStateFromDom}
                   placeholder="........"
                   className={`w-full px-4 py-2.5 rounded-xl border text-xs sm:text-sm focus:outline-none focus:ring-1 ${
                     confirmPassword && !isPasswordMatch
