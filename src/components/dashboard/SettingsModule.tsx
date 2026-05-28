@@ -271,7 +271,13 @@ function PasswordManagement({ role }: { role: "doctor" | "patient" }) {
   );
 }
 
-export function DoctorSettingsModule({ doctor }: { doctor: DoctorSettingsData }) {
+export function DoctorSettingsModule({
+  doctor,
+  onProfileUpdated,
+}: {
+  doctor: DoctorSettingsData;
+  onProfileUpdated?: (availability: string) => void;
+}) {
   const router = useRouter();
   const [form, setForm] = useState({
     name: doctor.name,
@@ -306,6 +312,7 @@ export function DoctorSettingsModule({ doctor }: { doctor: DoctorSettingsData })
                 return;
               }
               setStatus({ error: "", success: "Profile updated." });
+              onProfileUpdated?.(form.availability);
               router.refresh();
             });
           }}

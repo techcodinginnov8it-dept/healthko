@@ -3,6 +3,23 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { Socket } from "socket.io-client";
 
+function getMediaErrorMessage(err: unknown) {
+  if (err instanceof DOMException && (err.name === "NotAllowedError" || err.name === "PermissionDeniedError")) {
+    return "Camera or microphone permission was blocked. Allow access in your browser, then rejoin the consultation.";
+  }
+
+  if (
+    err instanceof DOMException &&
+    (err.name === "NotFoundError" || err.name === "DevicesNotFoundError" || err.name === "OverconstrainedError")
+  ) {
+    return "No matching camera or microphone was found. You can still receive the other participant's stream, or connect a device and rejoin.";
+  }
+
+  return err instanceof Error
+    ? err.message
+    : "Failed to access camera or microphone. Please check permissions.";
+}
+
 export function useWebRTC({
   roomId,
   role,
@@ -92,16 +109,14 @@ export function useWebRTC({
     }
     const activeSocket = socket;
 
-    async function init() {
+    async function getLocalMedia() {
+      if (!navigator.mediaDevices?.getUserMedia) {
+        setError("This browser cannot access camera or microphone devices. Use a current browser on localhost.");
+        return new MediaStream();
+      }
+
       try {
-        setError(null);
-
-        if (!navigator.mediaDevices?.getUserMedia) {
-          throw new Error("This browser cannot access camera or microphone devices. Use a current browser on localhost.");
-        }
-
-        // 1. Get user media
-        const stream = await navigator.mediaDevices.getUserMedia({
+        return await navigator.mediaDevices.getUserMedia({
           video: {
             width: { ideal: 640 },
             height: { ideal: 480 },
@@ -109,6 +124,42 @@ export function useWebRTC({
           },
           audio: true,
         });
+      } catch (err: unknown) {
+        const message = getMediaErrorMessage(err);
+        setError(message);
+
+        if (
+          err instanceof DOMException &&
+          (err.name === "NotFoundError" || err.name === "DevicesNotFoundError" || err.name === "OverconstrainedError")
+        ) {
+          try {
+            return await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+          } catch {
+            try {
+              return await navigator.mediaDevices.getUserMedia({
+                video: {
+                  width: { ideal: 640 },
+                  height: { ideal: 480 },
+                  facingMode: "user"
+                },
+                audio: false,
+              });
+            } catch {
+              return new MediaStream();
+            }
+          }
+        }
+
+        return new MediaStream();
+      }
+    }
+
+    async function init() {
+      try {
+        setError(null);
+
+        // 1. Get user media when available. Missing local devices should not prevent receiving the remote stream.
+        const stream = await getLocalMedia();
         setLocalStream(stream);
         localStreamRef.current = stream;
 
@@ -239,18 +290,8 @@ export function useWebRTC({
         }
 
       } catch (err: unknown) {
-        console.error("[WebRTC] Initializing getUserMedia or RTCPeerConnection failed:", err);
-        if (err instanceof DOMException && (err.name === "NotAllowedError" || err.name === "PermissionDeniedError")) {
-          setError("Camera or microphone permission was blocked. Allow access in your browser, then rejoin the consultation.");
-          return;
-        }
-
-        if (err instanceof DOMException && (err.name === "NotFoundError" || err.name === "DevicesNotFoundError")) {
-          setError("No camera or microphone was found. Connect a device, then rejoin the consultation.");
-          return;
-        }
-
-        setError(err instanceof Error ? err.message : "Failed to access camera or microphone. Please check permissions.");
+        console.warn("[WebRTC] Initialization failed:", err);
+        setError(getMediaErrorMessage(err));
       }
     }
 

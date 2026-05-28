@@ -200,7 +200,7 @@ export function useConsultationSession<TAppointment extends { id: string }>({
       return;
     }
 
-    if (event.type === "notification:new") {
+    if (event.type === "notification:new" || event.type === "doctor:availability-updated") {
       return;
     }
 

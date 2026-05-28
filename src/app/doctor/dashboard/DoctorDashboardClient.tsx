@@ -3,9 +3,9 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { logoutDoctor } from "@/app/actions/auth";
-import { acceptAppointment, cancelAppointment, completeConsultation, referAppointment, rescheduleAppointment } from "@/app/actions/doctor";
+import { acceptAppointment, cancelAppointment, completeConsultation, referAppointment, rescheduleAppointment, scheduleFollowUpAppointment } from "@/app/actions/doctor";
 import { endVideoSession, startVideoSession } from "@/app/actions/video-session";
-import { AppointmentCalendar } from "@/components/dashboard/AppointmentCalendar";
+import { AppointmentCalendar, type CalendarViewMode } from "@/components/dashboard/AppointmentCalendar";
 import { DashboardShell, type DashboardNavItem } from "@/components/dashboard/DashboardShell";
 import { DoctorSettingsModule } from "@/components/dashboard/SettingsModule";
 import {
@@ -81,15 +81,46 @@ export default function DoctorDashboardClient({ doctor, doctors, initialModule =
   const [diagnosisText, setDiagnosisText] = useState("");
   const [referralTargets, setReferralTargets] = useState<Record<string, string>>({});
   const [submitState, setSubmitState] = useState({ loading: false, error: "", success: "" });
+  const [scheduleState, setScheduleState] = useState({ loading: false, error: "", success: "" });
+  const [followUpPatientId, setFollowUpPatientId] = useState("");
+  const [followUpDate, setFollowUpDate] = useState("");
+  const [followUpTime, setFollowUpTime] = useState("");
+  const [followUpReason, setFollowUpReason] = useState("");
+  const [calendarView, setCalendarView] = useState<CalendarViewMode>("week");
+  const [calendarAnchorDate, setCalendarAnchorDate] = useState(() => {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    return today;
+  });
+  const [doctorAvailability, setDoctorAvailability] = useState(doctor.availability);
+  const [toasts, setToasts] = useState<{ id: string; tone: "success" | "error"; message: string }[]>([]);
+
+  const showToast = useCallback((tone: "success" | "error", message: string) => {
+    const id = `toast-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    setToasts((current) => [...current, { id, tone, message }]);
+    window.setTimeout(() => {
+      setToasts((current) => current.filter((toast) => toast.id !== id));
+    }, 3000);
+  }, []);
 
   const onRealtimeEvent = useCallback((event: RealtimeEvent) => {
     if (
       event.actorRole === "patient" &&
-      (event.type === "appointment:created" || event.type === "appointment:updated")
+      (
+        event.type === "appointment:created" ||
+        event.type === "appointment:updated" ||
+        event.type === "appointment:rescheduled" ||
+        event.type === "appointment:cancelled"
+      )
     ) {
       router.refresh();
     }
-  }, [router]);
+
+    if (event.type === "doctor:availability-updated" && event.doctorId === doctor.id) {
+      setDoctorAvailability(event.availability);
+      router.refresh();
+    }
+  }, [doctor.id, router]);
 
   const realtime = useDashboardRealtime(onRealtimeEvent);
   const session = useConsultationSession<DoctorAppointment>({
@@ -109,6 +140,10 @@ export default function DoctorDashboardClient({ doctor, doctors, initialModule =
   useEffect(() => {
     receiveRealtimeEvent(realtime.lastEvent);
   }, [realtime.lastEvent, receiveRealtimeEvent]);
+
+  useEffect(() => {
+    setDoctorAvailability(doctor.availability);
+  }, [doctor.availability]);
 
   const pendingAppointments = doctor.bookings.filter((booking) => booking.status === "PENDING");
   const confirmedAppointments = doctor.bookings.filter(
@@ -132,6 +167,28 @@ export default function DoctorDashboardClient({ doctor, doctors, initialModule =
     })),
   ];
 
+  const visibleScheduleAppointments = useMemo(() => {
+    const start = new Date(calendarAnchorDate);
+    start.setHours(0, 0, 0, 0);
+    const end = new Date(start);
+
+    if (calendarView === "day") {
+      end.setDate(start.getDate() + 1);
+    } else if (calendarView === "month") {
+      start.setDate(1);
+      end.setMonth(start.getMonth() + 1, 1);
+    } else {
+      end.setDate(start.getDate() + 7);
+    }
+
+    return [...pendingAppointments, ...confirmedAppointments].filter((booking) => {
+      const scheduledAt = new Date(booking.scheduledAt);
+      return scheduledAt >= start && scheduledAt < end;
+    });
+  }, [calendarAnchorDate, calendarView, confirmedAppointments, pendingAppointments]);
+
+  const visibleConfirmedAppointments = visibleScheduleAppointments.filter((booking) => booking.status === "CONFIRMED");
+
   const navItems: DashboardNavItem<DoctorModuleId>[] = [
     { id: "overview", label: "Overview" },
     { id: "schedule", label: "Appointments", badge: pendingAppointments.length || undefined },
@@ -142,11 +199,18 @@ export default function DoctorDashboardClient({ doctor, doctors, initialModule =
 
   const handleAccept = async (consultationId: string) => {
     setActionLoadingId(consultationId);
+    setScheduleState({ loading: false, error: "", success: "" });
     const result = await acceptAppointment(consultationId);
     setActionLoadingId(null);
     if (result.success) {
+      setScheduleState({ loading: false, error: "", success: "" });
+      showToast("success", "Appointment approved and schedule updated.");
       realtime.publish({ type: "appointment:updated", appointmentId: consultationId, actorRole: "doctor", title: "Appointment approved", body: "Your doctor approved the consultation request." });
       router.refresh();
+    } else {
+      const message = result.error || "Could not approve appointment.";
+      setScheduleState({ loading: false, error: message, success: "" });
+      showToast("error", message);
     }
   };
 
@@ -162,9 +226,12 @@ export default function DoctorDashboardClient({ doctor, doctors, initialModule =
 
   const handleReschedule = async (consultationId: string, scheduledAt: string) => {
     setActionLoadingId(consultationId);
+    setScheduleState({ loading: false, error: "", success: "" });
     const result = await rescheduleAppointment({ consultationId, scheduledAt });
     setActionLoadingId(null);
     if (result.success) {
+      setScheduleState({ loading: false, error: "", success: "" });
+      showToast("success", "Consultation rescheduled and patient dashboard updated.");
       realtime.publish({
         type: "appointment:rescheduled",
         appointmentId: consultationId,
@@ -174,7 +241,53 @@ export default function DoctorDashboardClient({ doctor, doctors, initialModule =
         body: `Your consultation moved to ${formatDateTime(scheduledAt)}.`,
       });
       router.refresh();
+    } else {
+      const message = result.error || "Could not reschedule consultation.";
+      setScheduleState({ loading: false, error: message, success: "" });
+      showToast("error", message);
     }
+  };
+
+  const handleScheduleFollowUp = async (event: React.FormEvent) => {
+    event.preventDefault();
+
+    if (!followUpPatientId || !followUpDate || !followUpTime || !followUpReason.trim()) {
+      const message = "Choose a patient, date, time, and follow-up reason.";
+      setScheduleState({ loading: false, error: message, success: "" });
+      showToast("error", message);
+      return;
+    }
+
+    setScheduleState({ loading: true, error: "", success: "" });
+    const scheduledAt = `${followUpDate}T${followUpTime}:00`;
+    const result = await scheduleFollowUpAppointment({
+      patientId: followUpPatientId,
+      scheduledAt,
+      reason: followUpReason,
+    });
+
+    if (!result.success) {
+      const message = result.error || "Could not schedule follow-up consultation.";
+      setScheduleState({ loading: false, error: message, success: "" });
+      showToast("error", message);
+      return;
+    }
+
+    realtime.publish({
+      type: "appointment:created",
+      appointmentId: result.consultation?.id || "follow-up",
+      actorRole: "doctor",
+      scheduledAt,
+      title: "Follow-up consultation scheduled",
+      body: `Your doctor scheduled a follow-up for ${formatDateTime(scheduledAt)}.`,
+    });
+    setScheduleState({ loading: false, error: "", success: "" });
+    showToast("success", "Follow-up consultation scheduled and patient dashboard updated.");
+    setFollowUpPatientId("");
+    setFollowUpDate("");
+    setFollowUpTime("");
+    setFollowUpReason("");
+    router.refresh();
   };
 
   const handleReferral = async (consultationId: string) => {
@@ -290,6 +403,22 @@ export default function DoctorDashboardClient({ doctor, doctors, initialModule =
         </form>
       )}
     >
+      <div className="fixed right-5 top-5 z-[80] flex w-[min(24rem,calc(100vw-2.5rem))] flex-col gap-3">
+        {toasts.map((toast) => (
+          <div
+            key={toast.id}
+            className={`rounded-xl border px-4 py-3 text-sm font-bold shadow-2xl backdrop-blur ${
+              toast.tone === "success"
+                ? "border-emerald-300/30 bg-emerald-950/90 text-emerald-100"
+                : "border-red-300/30 bg-red-950/90 text-red-100"
+            }`}
+            role="status"
+          >
+            {toast.message}
+          </div>
+        ))}
+      </div>
+
       {activeModule === "overview" && (
         <div className="space-y-6">
           <StatGrid
@@ -424,61 +553,157 @@ export default function DoctorDashboardClient({ doctor, doctors, initialModule =
       )}
 
       {activeModule === "schedule" && (
-        <section className="space-y-5">
-          <AppointmentCalendar
-            tone={tone}
-            editable
-            appointments={[...pendingAppointments, ...confirmedAppointments].map((booking) => ({
-              id: booking.id,
-              title: `${booking.patient.firstName} ${booking.patient.lastName}`,
-              subtitle: booking.reason || booking.patient.email,
-              scheduledAt: booking.scheduledAt,
-              status: booking.status,
-            }))}
-            onReschedule={handleReschedule}
-          />
-          <div className="grid gap-5 xl:grid-cols-2">
-          <div className="space-y-3">
-            <h2 className="text-lg font-black text-white">Pending Appointments</h2>
-            {pendingAppointments.length ? pendingAppointments.map((booking) => (
-              <AppointmentCard
-                key={booking.id}
-                tone={tone}
-                title={`${booking.patient.firstName} ${booking.patient.lastName}`}
-                subtitle={booking.patient.email}
-                scheduledAt={booking.scheduledAt}
-                status={booking.status}
-                reason={booking.reason}
-                actions={
-                  <>
-                    <button type="button" disabled={actionLoadingId === booking.id} onClick={() => handleAccept(booking.id)} className="rounded-lg bg-brand-teal px-3 py-2 text-xs font-black text-white">Accept</button>
-                    <button type="button" disabled={actionLoadingId === booking.id} onClick={() => handleCancel(booking.id)} className="rounded-lg bg-slate-800 px-3 py-2 text-xs font-black text-white">Cancel</button>
-                    <select
-                      value={referralTargets[booking.id] || ""}
-                      onChange={(event) => setReferralTargets((current) => ({ ...current, [booking.id]: event.target.value }))}
-                      className="rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-xs font-bold text-white"
-                      aria-label="Refer to doctor"
-                    >
-                      <option value="">Refer</option>
-                      {doctors.map((candidate) => (
-                        <option key={candidate.id} value={candidate.id}>
-                          {candidate.name} - {candidate.specialty}
-                        </option>
-                      ))}
-                    </select>
-                    <button type="button" disabled={actionLoadingId === booking.id || !referralTargets[booking.id]} onClick={() => handleReferral(booking.id)} className="rounded-lg bg-brand-red px-3 py-2 text-xs font-black text-white disabled:bg-slate-800">Send Referral</button>
-                  </>
-                }
-              />
-            )) : <EmptyState title="No pending requests" body="Patient bookings arrive here in realtime." />}
+        <section className="grid min-h-[calc(100vh-9rem)] gap-5 xl:grid-cols-[minmax(0,3fr)_minmax(360px,2fr)]">
+          <div className="space-y-4">
+            <section className="rounded-xl border border-slate-850 bg-slate-900 p-5 text-white">
+              <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+                <div>
+                  <p className="text-[10px] font-black uppercase tracking-[0.2em] text-brand-teal">Main Stage</p>
+                  <h2 className="mt-1 text-2xl font-black">Weekly Schedule Grid</h2>
+                  <p className="mt-2 max-w-2xl text-sm font-semibold text-slate-400">
+                    Drag appointment blocks to rebook within open availability. Confirmed visits and pending requests update across dashboards.
+                  </p>
+                  <p className="mt-2 text-xs font-black uppercase tracking-[0.18em] text-slate-500">
+                    Availability: {doctorAvailability}
+                  </p>
+                </div>
+                <div className="grid grid-cols-2 gap-3 text-center">
+                  <div className="rounded-lg border border-sky-300/20 bg-sky-400/10 px-4 py-3">
+                    <p className="text-2xl font-black text-sky-100">{confirmedAppointments.length}</p>
+                    <p className="text-[10px] font-black uppercase text-sky-200">Confirmed</p>
+                  </div>
+                  <div className="rounded-lg border border-amber-300/20 bg-amber-400/10 px-4 py-3">
+                    <p className="text-2xl font-black text-amber-100">{pendingAppointments.length}</p>
+                    <p className="text-[10px] font-black uppercase text-amber-200">Pending</p>
+                  </div>
+                </div>
+              </div>
+            </section>
+            <AppointmentCalendar
+              tone={tone}
+              editable
+              variant="stage"
+              viewMode={calendarView}
+              onViewModeChange={setCalendarView}
+              anchorDate={calendarAnchorDate}
+              onAnchorDateChange={setCalendarAnchorDate}
+              availability={doctorAvailability}
+              appointments={visibleScheduleAppointments.map((booking) => ({
+                id: booking.id,
+                title: `${booking.patient.firstName} ${booking.patient.lastName}`,
+                subtitle: booking.reason || booking.patient.email,
+                scheduledAt: booking.scheduledAt,
+                status: booking.status,
+              }))}
+              onReschedule={handleReschedule}
+            />
           </div>
-          <div className="space-y-3">
-            <h2 className="text-lg font-black text-white">Confirmed Appointments</h2>
-            {confirmedAppointments.length ? confirmedAppointments.map((booking) => (
-              <AppointmentCard key={booking.id} tone={tone} title={`${booking.patient.firstName} ${booking.patient.lastName}`} subtitle={booking.patient.email} scheduledAt={booking.scheduledAt} status={booking.status} reason={booking.reason} />
-            )) : <EmptyState title="No confirmed visits" body="Accepted requests move into this schedule." />}
-          </div>
-          </div>
+
+          <aside className="space-y-4">
+            <section className="rounded-xl border border-slate-850 bg-slate-900 p-4">
+              <div className="mb-3">
+                <p className="text-[10px] font-black uppercase tracking-[0.2em] text-brand-teal">Action Panel</p>
+                <h2 className="text-base font-black text-white">Follow-Up Scheduling</h2>
+              </div>
+              <form onSubmit={handleScheduleFollowUp} className="grid gap-3">
+                <label className="space-y-1 text-[10px] font-black uppercase tracking-wider text-slate-400">
+                  Patient
+                  <select
+                    value={followUpPatientId}
+                    onChange={(event) => setFollowUpPatientId(event.target.value)}
+                    className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-xs font-semibold normal-case text-white"
+                  >
+                    <option value="">Select patient with history</option>
+                    {patients.map((patientRecord) => (
+                      <option key={patientRecord.id} value={patientRecord.id}>
+                        {patientRecord.firstName} {patientRecord.lastName}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <div className="grid grid-cols-2 gap-3">
+                  <label className="space-y-1 text-[10px] font-black uppercase tracking-wider text-slate-400">
+                    Date
+                    <input type="date" value={followUpDate} onChange={(event) => setFollowUpDate(event.target.value)} className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-xs font-semibold text-white" />
+                  </label>
+                  <label className="space-y-1 text-[10px] font-black uppercase tracking-wider text-slate-400">
+                    Time
+                    <input type="time" value={followUpTime} onChange={(event) => setFollowUpTime(event.target.value)} className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-xs font-semibold text-white" />
+                  </label>
+                </div>
+                <label className="space-y-1 text-[10px] font-black uppercase tracking-wider text-slate-400">
+                  Reason
+                  <input value={followUpReason} onChange={(event) => setFollowUpReason(event.target.value)} className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-xs font-semibold normal-case text-white" />
+                </label>
+                <button type="submit" disabled={scheduleState.loading || !patients.length} className="rounded-lg bg-brand-teal px-4 py-2.5 text-xs font-black text-white disabled:bg-slate-800">
+                  {scheduleState.loading ? "Scheduling..." : "Schedule Follow-Up"}
+                </button>
+              </form>
+            </section>
+
+            <section className="rounded-xl border border-amber-300/20 bg-amber-300/10 p-4 shadow-[0_0_32px_rgba(245,158,11,0.08)]">
+              <div className="mb-3 flex items-center justify-between gap-3">
+                <div>
+                  <p className="text-[10px] font-black uppercase tracking-[0.2em] text-amber-200">Needs Review</p>
+                  <h2 className="text-base font-black text-white">Pending Appointments</h2>
+                </div>
+                <span className="rounded-full bg-amber-300 px-2.5 py-1 text-[10px] font-black text-slate-950">{pendingAppointments.length} active</span>
+              </div>
+              <div className="max-h-[32vh] space-y-3 overflow-y-auto pr-1">
+                {pendingAppointments.length ? pendingAppointments.map((booking) => (
+                  <article key={booking.id} className="rounded-lg border border-amber-200/20 bg-slate-950/70 p-3 text-white shadow-[0_0_18px_rgba(245,158,11,0.08)]">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-black">{booking.patient.firstName} {booking.patient.lastName}</p>
+                        <p className="mt-1 text-[11px] font-semibold text-amber-100">{formatDateTime(booking.scheduledAt)}</p>
+                        <p className="mt-1 line-clamp-2 text-xs text-slate-300">{booking.reason || booking.patient.email}</p>
+                      </div>
+                      <span className="rounded-full bg-amber-400/15 px-2 py-0.5 text-[10px] font-black uppercase text-amber-100">Request</span>
+                    </div>
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      <button type="button" disabled={actionLoadingId === booking.id} onClick={() => handleAccept(booking.id)} className="rounded-lg bg-brand-teal px-3 py-2 text-[11px] font-black text-white disabled:bg-slate-800">Accept</button>
+                      <button type="button" disabled={actionLoadingId === booking.id} onClick={() => handleCancel(booking.id)} className="rounded-lg bg-slate-800 px-3 py-2 text-[11px] font-black text-white">Cancel</button>
+                      <select
+                        value={referralTargets[booking.id] || ""}
+                        onChange={(event) => setReferralTargets((current) => ({ ...current, [booking.id]: event.target.value }))}
+                        className="min-w-28 rounded-lg border border-slate-700 bg-slate-950 px-2 py-2 text-[11px] font-bold text-white"
+                        aria-label="Refer to doctor"
+                      >
+                        <option value="">Refer</option>
+                        {doctors.map((candidate) => (
+                          <option key={candidate.id} value={candidate.id}>
+                            {candidate.name}
+                          </option>
+                        ))}
+                      </select>
+                      <button type="button" disabled={actionLoadingId === booking.id || !referralTargets[booking.id]} onClick={() => handleReferral(booking.id)} className="rounded-lg bg-brand-red px-3 py-2 text-[11px] font-black text-white disabled:bg-slate-800">Send</button>
+                    </div>
+                  </article>
+                )) : <EmptyState title="No pending requests" body="Patient bookings arrive here in realtime." />}
+              </div>
+            </section>
+
+            <section className="rounded-xl border border-slate-850 bg-slate-900 p-4">
+              <div className="mb-3 flex items-center justify-between gap-3">
+                <div>
+                  <p className="text-[10px] font-black uppercase tracking-[0.2em] text-sky-200">Agenda Ticker</p>
+                  <h2 className="text-base font-black text-white">Confirmed Appointments</h2>
+                </div>
+                <span className="rounded-full bg-sky-400/15 px-2.5 py-1 text-[10px] font-black uppercase text-sky-100">Live-ready</span>
+              </div>
+              <div className="max-h-[360px] min-h-32 space-y-2 overflow-y-auto pr-1">
+                {visibleConfirmedAppointments.length ? visibleConfirmedAppointments.map((booking) => (
+                  <article key={booking.id} className="flex items-center justify-between gap-3 rounded-lg border border-slate-800 bg-slate-950 px-3 py-2">
+                    <div className="min-w-0">
+                      <p className="truncate text-xs font-black text-white">{booking.patient.firstName} {booking.patient.lastName}</p>
+                      <p className="mt-0.5 truncate text-[11px] font-semibold text-slate-400">{booking.reason || booking.patient.email}</p>
+                    </div>
+                    <time className="shrink-0 text-right text-[11px] font-black text-sky-100">{formatDateTime(booking.scheduledAt)}</time>
+                  </article>
+                )) : <EmptyState title="No confirmed visits" body="Accepted requests move into this schedule." />}
+              </div>
+            </section>
+          </aside>
         </section>
       )}
 
@@ -539,7 +764,21 @@ export default function DoctorDashboardClient({ doctor, doctors, initialModule =
       )}
 
       {activeModule === "settings" && (
-        <DoctorSettingsModule doctor={doctor} />
+        <DoctorSettingsModule
+          doctor={{ ...doctor, availability: doctorAvailability }}
+          onProfileUpdated={(availability) => {
+            setDoctorAvailability(availability);
+            showToast("success", "Availability updated and schedule calendar synchronized.");
+            realtime.publish({
+              type: "doctor:availability-updated",
+              actorRole: "doctor",
+              doctorId: doctor.id,
+              availability,
+              title: "Doctor availability updated",
+              body: "The consultation calendar schedule was updated.",
+            });
+          }}
+        />
       )}
     </DashboardShell>
   );

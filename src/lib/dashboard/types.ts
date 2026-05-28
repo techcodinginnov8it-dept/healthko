@@ -129,6 +129,14 @@ export type RealtimeEvent =
       actorRole: DashboardRole;
       title: string;
       body: string;
+    }
+  | {
+      type: "doctor:availability-updated";
+      actorRole: "doctor";
+      doctorId: string;
+      availability: string;
+      title?: string;
+      body?: string;
     };
 
 export type ChatMessage = {

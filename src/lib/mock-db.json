@@ -28,7 +28,7 @@
       "phone": "9669773425",
       "dob": "2026-05-21",
       "gender": "Male",
-      "password": "$2a$10$h6nbqlhWxRoJruzyWYHuxOLF0JRUtIYK8MhGD4uDWMaqXQBPErqqi",
+      "password": "$2a$10$rMqqxg0UVB321E7tyniZhO.a/Z3IGDt6pj985Sv/EjYaw.BkoSc7i",
       "hipaaConsent": true,
       "emailVerified": true,
       "id": "pat-403srhr9k",
@@ -107,6 +107,60 @@
       "isActive": true,
       "createdAt": "2026-05-22T16:32:22.141Z",
       "updatedAt": "2026-05-22T16:32:22.141Z"
+    },
+    {
+      "firstName": "Larajean",
+      "middleName": null,
+      "lastName": "Iglesia",
+      "suffix": null,
+      "email": "larajeani.innov8it@gmail.com",
+      "countryCode": "+63",
+      "phone": "9787675535",
+      "dob": "2000-12-23",
+      "gender": "Female",
+      "password": "$2a$10$h2wwToymFU2vM5es.1RdGeZ3kmN7lEEAfwFpumzgOgIppHWrGQXqe",
+      "hipaaConsent": true,
+      "emailVerified": false,
+      "id": "pat-ysjmxpcjn",
+      "isActive": true,
+      "createdAt": "2026-05-25T18:04:26.231Z",
+      "updatedAt": "2026-05-25T18:04:26.231Z"
+    },
+    {
+      "firstName": "Larajean",
+      "middleName": null,
+      "lastName": "Iglesia",
+      "suffix": null,
+      "email": "jane.doe@gmail.com",
+      "countryCode": "+63",
+      "phone": "9787675535",
+      "dob": "2000-12-23",
+      "gender": "Female",
+      "password": "$2a$10$zcJDIhQWSBzjQE1xCCF/8eyphi67qvIQxcz2pAnMpYu4YQ6xG826S",
+      "hipaaConsent": true,
+      "emailVerified": false,
+      "id": "pat-vlruaq3om",
+      "isActive": true,
+      "createdAt": "2026-05-25T18:05:44.959Z",
+      "updatedAt": "2026-05-25T18:05:44.959Z"
+    },
+    {
+      "firstName": "Larajean",
+      "middleName": null,
+      "lastName": "Iglesia",
+      "suffix": null,
+      "email": "emilycarter.homes8@gmail.com",
+      "countryCode": "+63",
+      "phone": "9787675535",
+      "dob": "2000-12-23",
+      "gender": "Female",
+      "password": "$2a$10$ToaXeAm25XNbh/dG/g.xJOkLHICcBxrCypmzzHUgn0j.9pmirNnz.",
+      "hipaaConsent": true,
+      "emailVerified": false,
+      "id": "pat-bj23y3uez",
+      "isActive": true,
+      "createdAt": "2026-05-25T18:06:37.833Z",
+      "updatedAt": "2026-05-25T18:06:37.833Z"
     }
   ],
   "doctors": [
@@ -234,6 +288,97 @@
       "duration": 30,
       "createdAt": "2026-05-25T10:40:08.744Z",
       "updatedAt": "2026-05-25T10:40:19.956Z"
+    },
+    {
+      "id": "con-di9utwqs9",
+      "patientId": "pat-403srhr9k",
+      "doctorId": "doc-sarah-jenkins-123",
+      "scheduledAt": "2026-05-29T07:00:00.000Z",
+      "status": "CONFIRMED",
+      "reason": "For prescription purposes",
+      "notes": null,
+      "prescription": null,
+      "duration": 30,
+      "createdAt": "2026-05-25T18:14:42.992Z",
+      "updatedAt": "2026-05-25T19:16:59.210Z"
+    },
+    {
+      "id": "con-r138c07z9",
+      "patientId": "pat-403srhr9k",
+      "doctorId": "doc-sarah-jenkins-123",
+      "scheduledAt": "2026-05-28T02:00:00.000Z",
+      "status": "CONFIRMED",
+      "reason": "test",
+      "notes": null,
+      "prescription": null,
+      "duration": 30,
+      "createdAt": "2026-05-25T18:53:42.517Z",
+      "updatedAt": "2026-05-25T20:26:33.540Z"
+    },
+    {
+      "id": "con-rpqmjk01j",
+      "patientId": "pat-403srhr9k",
+      "doctorId": "doc-sarah-jenkins-123",
+      "scheduledAt": "2026-05-28T05:00:00.000Z",
+      "status": "CANCELLED",
+      "reason": "test lang",
+      "notes": null,
+      "prescription": null,
+      "duration": 30,
+      "createdAt": "2026-05-25T19:19:56.335Z",
+      "updatedAt": "2026-05-25T19:20:42.653Z"
+    },
+    {
+      "id": "con-z3yma82xu",
+      "patientId": "pat-403srhr9k",
+      "doctorId": "doc-sarah-jenkins-123",
+      "scheduledAt": "2026-05-28T06:00:00.000Z",
+      "status": "CANCELLED",
+      "reason": "test again",
+      "notes": "Referred to Dr. Marcus Vance (Pediatric Medicine Specialist). ",
+      "prescription": null,
+      "duration": 30,
+      "createdAt": "2026-05-25T19:21:25.816Z",
+      "updatedAt": "2026-05-25T19:21:45.628Z"
+    },
+    {
+      "id": "con-5k8s7aqy3",
+      "patientId": "pat-403srhr9k",
+      "doctorId": "doc-marcus-vance-456",
+      "scheduledAt": "2026-05-28T06:00:00.000Z",
+      "status": "PENDING",
+      "reason": "test again",
+      "notes": null,
+      "prescription": null,
+      "duration": 30,
+      "createdAt": "2026-05-25T19:21:45.630Z",
+      "updatedAt": "2026-05-25T19:21:45.630Z"
+    },
+    {
+      "id": "con-qd6zetgiq",
+      "patientId": "pat-403srhr9k",
+      "doctorId": "doc-sarah-jenkins-123",
+      "scheduledAt": "2026-05-28T06:00:00.000Z",
+      "status": "CONFIRMED",
+      "reason": "test ulit",
+      "notes": null,
+      "prescription": null,
+      "duration": 30,
+      "createdAt": "2026-05-25T19:22:38.420Z",
+      "updatedAt": "2026-05-25T19:24:13.229Z"
+    },
+    {
+      "id": "con-qi7t8c1wr",
+      "patientId": "pat-403srhr9k",
+      "doctorId": "doc-sarah-jenkins-123",
+      "scheduledAt": "2026-05-28T07:00:00.000Z",
+      "status": "CANCELLED",
+      "reason": "test ulit",
+      "notes": null,
+      "prescription": null,
+      "duration": 30,
+      "createdAt": "2026-05-25T19:23:34.691Z",
+      "updatedAt": "2026-05-25T19:24:16.528Z"
     }
   ],
   "emailOtps": [
@@ -243,7 +388,7 @@
       "otp": "690162",
       "purpose": "signup_verify",
       "expiresAt": "2026-05-20T21:14:05.728Z",
-      "used": false,
+      "used": true,
       "createdAt": "2026-05-20T21:04:05.729Z"
     },
     {
@@ -315,8 +460,98 @@
       "otp": "123456",
       "purpose": "login_verify",
       "expiresAt": "2026-05-25T14:34:19.357Z",
-      "used": false,
+      "used": true,
       "createdAt": "2026-05-25T14:24:19.358Z"
+    },
+    {
+      "id": "otp-xweehus0n",
+      "email": "jonasv.innov8it@gmail.com",
+      "otp": "123456",
+      "purpose": "login_verify",
+      "expiresAt": "2026-05-25T17:33:54.693Z",
+      "used": true,
+      "createdAt": "2026-05-25T17:23:54.694Z"
+    },
+    {
+      "id": "otp-qqqn0eebb",
+      "email": "jonasv.innov8it@gmail.com",
+      "otp": "123456",
+      "purpose": "login_verify",
+      "expiresAt": "2026-05-25T17:35:04.520Z",
+      "used": true,
+      "createdAt": "2026-05-25T17:25:04.521Z"
+    },
+    {
+      "id": "otp-gkx2xa4ga",
+      "email": "jonasv.innov8it@gmail.com",
+      "otp": "123456",
+      "purpose": "login_verify",
+      "expiresAt": "2026-05-25T17:39:50.949Z",
+      "used": true,
+      "createdAt": "2026-05-25T17:29:50.950Z"
+    },
+    {
+      "id": "otp-afz66hteq",
+      "email": "jonasv.innov8it@gmail.com",
+      "otp": "123456",
+      "purpose": "login_verify",
+      "expiresAt": "2026-05-25T17:40:13.677Z",
+      "used": true,
+      "createdAt": "2026-05-25T17:30:13.678Z"
+    },
+    {
+      "id": "otp-6472xs9mw",
+      "email": "jonasv.innov8it@gmail.com",
+      "otp": "123456",
+      "purpose": "login_verify",
+      "expiresAt": "2026-05-25T18:11:18.151Z",
+      "used": true,
+      "createdAt": "2026-05-25T18:01:18.152Z"
+    },
+    {
+      "id": "otp-71om9cnvc",
+      "email": "jonasv.innov8it@gmail.com",
+      "otp": "123456",
+      "purpose": "login_verify",
+      "expiresAt": "2026-05-25T18:11:31.777Z",
+      "used": true,
+      "createdAt": "2026-05-25T18:01:31.777Z"
+    },
+    {
+      "id": "otp-b6q7c0a13",
+      "email": "larajeani.innov8it@gmail.com",
+      "otp": "123456",
+      "purpose": "signup_verify",
+      "expiresAt": "2026-05-25T18:14:26.239Z",
+      "used": false,
+      "createdAt": "2026-05-25T18:04:26.240Z"
+    },
+    {
+      "id": "otp-m5nbyoavc",
+      "email": "jane.doe@gmail.com",
+      "otp": "123456",
+      "purpose": "signup_verify",
+      "expiresAt": "2026-05-25T18:15:44.974Z",
+      "used": false,
+      "createdAt": "2026-05-25T18:05:44.975Z"
+    },
+    {
+      "id": "otp-khjpd890u",
+      "email": "emilycarter.homes8@gmail.com",
+      "otp": "123456",
+      "purpose": "signup_verify",
+      "expiresAt": "2026-05-25T18:16:37.846Z",
+      "used": false,
+      "createdAt": "2026-05-25T18:06:37.847Z"
+    },
+    {
+      "id": "otp-9ozfhfy91",
+      "email": "jonasv.innov8it@gmail.com",
+      "otp": "123456",
+      "purpose": "login_verify",
+      "expiresAt": "2026-05-25T18:20:42.881Z",
+      "used": true,
+      "createdAt": "2026-05-25T18:10:42.882Z"
     }
   ],
   "videoSessions": [
@@ -343,12 +578,22 @@
     {
       "id": "vid-3szgzt2c5",
       "consultationId": "con-kniurcjx9",
-      "status": "STARTED",
-      "roomId": "healthko-con-kniurcjx9-949c9d78d7154a38",
-      "startedAt": "2026-05-25T14:24:46.106Z",
-      "endedAt": "2026-05-25T14:24:42.527Z",
+      "status": "ENDED",
+      "roomId": "healthko-con-kniurcjx9-ef0a811823ba38e3",
+      "startedAt": "2026-05-25T18:11:37.292Z",
+      "endedAt": "2026-05-25T18:13:23.142Z",
       "createdAt": "2026-05-25T10:40:29.384Z",
-      "updatedAt": "2026-05-25T14:24:46.106Z"
+      "updatedAt": "2026-05-25T18:13:23.142Z"
+    },
+    {
+      "id": "vid-c0jwmlqza",
+      "consultationId": "con-r138c07z9",
+      "status": "STARTED",
+      "roomId": "healthko-con-r138c07z9-d223766a13731cfc",
+      "startedAt": "2026-05-25T20:55:16.702Z",
+      "endedAt": null,
+      "createdAt": "2026-05-25T20:55:16.702Z",
+      "updatedAt": "2026-05-25T20:55:16.702Z"
     }
   ]
 }

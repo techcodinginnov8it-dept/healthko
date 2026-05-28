@@ -3,12 +3,16 @@ import "server-only";
 import { cache } from "react";
 import { redirect } from "next/navigation";
 
-import { prisma } from "@/lib/prisma";
+import { isPrismaConfigured, prisma } from "@/lib/prisma";
 import { requireDoctorSession } from "@/lib/auth/doctor-session";
 import { mockDb } from "@/lib/mockDb";
 
 export const getDoctorDashboardData = cache(async () => {
   const session = await requireDoctorSession();
+
+  if (!isPrismaConfigured()) {
+    return getMockDoctorDashboardData(session);
+  }
 
   try {
     const doctor = await prisma.doctor.findUnique({
@@ -85,40 +89,44 @@ export const getDoctorDashboardData = cache(async () => {
     };
   } catch (error) {
     console.warn("Prisma getDoctorDashboardData failed, falling back to mock JSON database:", error);
-    try {
-      const doctorData = mockDb.findDoctorById(session.userId);
-      if (!doctorData) {
-        redirect("/doctor/signin");
-      }
-
-      const bookings = mockDb.getBookingsForDoctor(session.userId);
-
-      return {
-        session,
-        doctor: {
-          id: doctorData.id,
-          name: doctorData.name,
-          email: doctorData.email,
-          npi: doctorData.npi,
-          specialty: doctorData.specialty,
-          bio: doctorData.bio,
-          image: doctorData.image,
-          licenseNumber: doctorData.licenseNumber ?? null,
-          licenseState: doctorData.licenseState ?? null,
-          yearsExp: doctorData.yearsExp ?? null,
-          consultFee: doctorData.consultFee,
-          rating: doctorData.rating,
-          reviewCount: doctorData.reviewCount,
-          availability: doctorData.availability,
-          isVerified: doctorData.isVerified,
-          createdAt: new Date(doctorData.createdAt),
-          bookings,
-          audits: [],
-        },
-      };
-    } catch (mockErr) {
-      console.error("Doctor DAL Mock DB critical failure:", mockErr);
-      redirect("/doctor/signin");
-    }
+    return getMockDoctorDashboardData(session);
   }
 });
+
+function getMockDoctorDashboardData(session: { userId: string; email: string }) {
+  try {
+    const doctorData = mockDb.findDoctorById(session.userId);
+    if (!doctorData) {
+      redirect("/doctor/signin");
+    }
+
+    const bookings = mockDb.getBookingsForDoctor(session.userId);
+
+    return {
+      session,
+      doctor: {
+        id: doctorData.id,
+        name: doctorData.name,
+        email: doctorData.email,
+        npi: doctorData.npi,
+        specialty: doctorData.specialty,
+        bio: doctorData.bio,
+        image: doctorData.image,
+        licenseNumber: doctorData.licenseNumber ?? null,
+        licenseState: doctorData.licenseState ?? null,
+        yearsExp: doctorData.yearsExp ?? null,
+        consultFee: doctorData.consultFee,
+        rating: doctorData.rating,
+        reviewCount: doctorData.reviewCount,
+        availability: doctorData.availability,
+        isVerified: doctorData.isVerified,
+        createdAt: new Date(doctorData.createdAt),
+        bookings,
+        audits: [],
+      },
+    };
+  } catch (mockErr) {
+    console.error("Doctor DAL Mock DB critical failure:", mockErr);
+    redirect("/doctor/signin");
+  }
+}

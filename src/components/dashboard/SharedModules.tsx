@@ -243,7 +243,7 @@ function VideoStream({ stream, muted, active }: { stream: MediaStream | null; mu
     };
   }, [stream]);
 
-  if (!stream || !active) return null;
+  if (!stream || !active || stream.getVideoTracks().length === 0) return null;
 
   return (
     <video
@@ -294,8 +294,8 @@ export function LiveConsultationPanel({
   mediaError?: string | null;
 }) {
   const statusLabel = status === "connected" ? "Connected" : role === "doctor" ? "Waiting for Patient" : "Waiting room";
-  const localVideoActive = Boolean(localStream && isCameraOn);
-  const remoteVideoActive = Boolean(remoteStream && counterpartCameraOn);
+  const localVideoActive = Boolean(localStream?.getVideoTracks().length && isCameraOn);
+  const remoteVideoActive = Boolean(remoteStream?.getVideoTracks().length && counterpartCameraOn);
   const connectionLabel =
     connectionState === "connected"
       ? "Media connected"

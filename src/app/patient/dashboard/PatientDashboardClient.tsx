@@ -107,6 +107,7 @@ export default function PatientDashboardClient({ patient, doctors, initialModule
       event.actorRole === "doctor" &&
       (
         event.type === "appointment:updated" ||
+        event.type === "appointment:created" ||
         event.type === "appointment:rescheduled" ||
         event.type === "appointment:cancelled" ||
         event.type === "appointment:referred" ||
@@ -192,7 +193,8 @@ export default function PatientDashboardClient({ patient, doctors, initialModule
     });
 
     if (!result.success) {
-      setBookingState({ loading: false, error: result.error || "Could not book appointment.", success: "" });
+      const errorMessage = "error" in result ? result.error : "";
+      setBookingState({ loading: false, error: errorMessage || "Could not book appointment.", success: "" });
       return;
     }
 
