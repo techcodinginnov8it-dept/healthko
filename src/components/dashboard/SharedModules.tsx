@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ChatAttachment, ChatMessage, DashboardRole } from "@/lib/dashboard/types";
 import { formatDate, formatDateTime } from "@/lib/dashboard/format";
 
@@ -29,6 +29,17 @@ function PhoneDownIcon() {
   return (
     <svg aria-hidden="true" viewBox="0 0 24 24" className="h-6 w-6 rotate-[135deg]" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
       <path d="M22 16.9v3a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3.1 19.4 19.4 0 0 1-6-6A19.8 19.8 0 0 1 2.1 4.2 2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.7c.1 1 .4 2 .7 2.9a2 2 0 0 1-.4 2.1L8.1 10a16 16 0 0 0 6 6l1.3-1.3a2 2 0 0 1 2.1-.4c.9.3 1.9.6 2.9.7a2 2 0 0 1 1.6 1.9Z" />
+    </svg>
+  );
+}
+
+function MaximizeIcon() {
+  return (
+    <svg aria-hidden="true" viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M8 3H5a2 2 0 0 0-2 2v3" />
+      <path d="M16 3h3a2 2 0 0 1 2 2v3" />
+      <path d="M8 21H5a2 2 0 0 1-2-2v-3" />
+      <path d="M16 21h3a2 2 0 0 0 2-2v-3" />
     </svg>
   );
 }
@@ -122,6 +133,56 @@ export function AppointmentCard({
   );
 }
 
+const SYSTEM_MESSAGE_TEXTS = new Set([
+  "Secure room is staged. Start the consultation when you are ready.",
+  "Waiting room opened. Complete your device checks while the doctor starts the consultation.",
+  "Secure room opened. Waiting for the patient to join.",
+  "Secure WebRTC room access authorized.",
+  "Participant joined the live consultation room.",
+  "The consultation was ended.",
+]);
+
+function isSystemChatMessage(message: ChatMessage) {
+  return message.kind === "system" || (!message.kind && SYSTEM_MESSAGE_TEXTS.has(message.text));
+}
+
+function SystemChatMessage({ message, tone }: { message: ChatMessage; tone: "light" | "dark" }) {
+  return (
+    <div className="flex justify-center px-2">
+      <div
+        className={`max-w-[90%] rounded-full border px-3 py-1.5 text-center text-[11px] font-bold ${
+          tone === "dark"
+            ? "border-slate-700 bg-slate-950/80 text-slate-300"
+            : "border-slate-200 bg-slate-50 text-slate-500"
+        }`}
+      >
+        <span>{message.text}</span>
+        <span className="ml-2 text-[10px] uppercase opacity-70">{message.time}</span>
+      </div>
+    </div>
+  );
+}
+
+function ConversationChatMessage({ message, mine, tone }: { message: ChatMessage; mine: boolean; tone: "light" | "dark" }) {
+  return (
+    <div className={`flex flex-col ${mine ? "items-end" : "items-start"}`}>
+      <span className="text-[10px] font-bold uppercase text-slate-500">{mine ? "You" : message.sender} · {message.time}</span>
+      <p className={`mt-1 max-w-[82%] rounded-xl px-3 py-2 text-xs leading-relaxed ${mine ? "bg-brand-teal text-white" : tone === "dark" ? "bg-slate-800 text-slate-100" : "bg-slate-100 text-slate-700"}`}>
+        {message.text}
+        {message.attachment && (
+          <a
+            href={message.attachment.dataUrl}
+            download={message.attachment.name}
+            className="mt-2 block rounded-lg bg-white/10 px-2 py-1 font-black underline"
+          >
+            {message.attachment.name}
+          </a>
+        )}
+      </p>
+    </div>
+  );
+}
+
 export function ChatPanel({
   role,
   messages,
@@ -147,6 +208,7 @@ export function ChatPanel({
       return true;
     });
   }, [messages]);
+  const hasConversationMessages = visibleMessages.some((message) => !isSystemChatMessage(message));
 
   const handleFile = (file?: File) => {
     if (!file) {
@@ -174,28 +236,21 @@ export function ChatPanel({
       <div className="flex-1 space-y-3 overflow-y-auto p-4">
         {visibleMessages.length ? (
           visibleMessages.map((message) => {
+            if (isSystemChatMessage(message)) {
+              return <SystemChatMessage key={message.id} message={message} tone={tone} />;
+            }
+
             const mine = message.sender === role;
 
-            return (
-              <div key={message.id} className={`flex flex-col ${mine ? "items-end" : "items-start"}`}>
-                <span className="text-[10px] font-bold uppercase text-slate-500">{mine ? "You" : message.sender} · {message.time}</span>
-                <p className={`mt-1 max-w-[82%] rounded-xl px-3 py-2 text-xs leading-relaxed ${mine ? "bg-brand-teal text-white" : tone === "dark" ? "bg-slate-800 text-slate-100" : "bg-slate-100 text-slate-700"}`}>
-                  {message.text}
-                  {message.attachment && (
-                    <a
-                      href={message.attachment.dataUrl}
-                      download={message.attachment.name}
-                      className="mt-2 block rounded-lg bg-white/10 px-2 py-1 font-black underline"
-                    >
-                      {message.attachment.name}
-                    </a>
-                  )}
-                </p>
-              </div>
-            );
+            return <ConversationChatMessage key={message.id} message={message} mine={mine} tone={tone} />;
           })
         ) : (
           <EmptyState title="No messages yet" body="Start the conversation from either dashboard." />
+        )}
+        {visibleMessages.length > 0 && !hasConversationMessages && (
+          <p className={`pt-1 text-center text-xs font-semibold ${tone === "dark" ? "text-slate-500" : "text-slate-400"}`}>
+            No conversation messages yet.
+          </p>
         )}
       </div>
       <form
@@ -237,13 +292,22 @@ function VideoStream({ stream, muted, active }: { stream: MediaStream | null; mu
     }
 
     video.srcObject = stream;
+    void video.play().catch(() => {
+      // Browser autoplay policies can still block unmuted remote playback until the user interacts.
+    });
 
     return () => {
       video.srcObject = null;
     };
   }, [stream]);
 
-  if (!stream || !active || stream.getVideoTracks().length === 0) return null;
+  if (!stream) return null;
+
+  const hasVideo = stream.getVideoTracks().length > 0;
+  const hasAudio = stream.getAudioTracks().length > 0;
+  const visualActive = active && hasVideo;
+
+  if (!visualActive && !hasAudio) return null;
 
   return (
     <video
@@ -251,8 +315,81 @@ function VideoStream({ stream, muted, active }: { stream: MediaStream | null; mu
       autoPlay
       playsInline
       muted={muted}
-      className="absolute inset-0 h-full w-full object-cover rounded-xl"
+      className={visualActive ? "absolute inset-0 h-full w-full rounded-xl object-cover" : "sr-only"}
     />
+  );
+}
+
+type MediaDeviceControlsProps = {
+  devices?: MediaDeviceInfo[];
+  cameraDeviceId?: string;
+  microphoneDeviceId?: string;
+  onCameraDeviceChange?: (deviceId: string) => void;
+  onMicrophoneDeviceChange?: (deviceId: string) => void;
+  onRefreshDevices?: () => void;
+  deviceStatus?: {
+    cameraAvailable: boolean;
+    microphoneAvailable: boolean;
+    permissionState: PermissionState | "unknown";
+    message: string | null;
+  };
+};
+
+function MediaDeviceControls({
+  devices = [],
+  cameraDeviceId = "",
+  microphoneDeviceId = "",
+  onCameraDeviceChange,
+  onMicrophoneDeviceChange,
+  onRefreshDevices,
+  deviceStatus,
+}: MediaDeviceControlsProps) {
+  const cameras = devices.filter((device) => device.kind === "videoinput");
+  const microphones = devices.filter((device) => device.kind === "audioinput");
+
+  return (
+    <div className="grid gap-2 rounded-lg border border-white/10 bg-white/[0.03] p-3 text-xs sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto]">
+      <label className="min-w-0 space-y-1 font-bold text-slate-300">
+        Camera
+        <select
+          value={cameraDeviceId}
+          onChange={(event) => onCameraDeviceChange?.(event.target.value)}
+          className="w-full rounded-md border border-slate-700 bg-slate-950 px-2 py-2 text-xs text-white outline-none focus:border-brand-teal"
+        >
+          <option value="">{cameras.length ? "Default camera" : "No camera detected"}</option>
+          {cameras.map((device, index) => (
+            <option key={device.deviceId || `camera-${index}`} value={device.deviceId}>
+              {device.label || `Camera ${index + 1}`}
+            </option>
+          ))}
+        </select>
+      </label>
+      <label className="min-w-0 space-y-1 font-bold text-slate-300">
+        Microphone
+        <select
+          value={microphoneDeviceId}
+          onChange={(event) => onMicrophoneDeviceChange?.(event.target.value)}
+          className="w-full rounded-md border border-slate-700 bg-slate-950 px-2 py-2 text-xs text-white outline-none focus:border-brand-teal"
+        >
+          <option value="">{microphones.length ? "Default microphone" : "No microphone detected"}</option>
+          {microphones.map((device, index) => (
+            <option key={device.deviceId || `microphone-${index}`} value={device.deviceId}>
+              {device.label || `Microphone ${index + 1}`}
+            </option>
+          ))}
+        </select>
+      </label>
+      <button
+        type="button"
+        onClick={onRefreshDevices}
+        className="self-end rounded-md border border-white/10 px-3 py-2 text-[10px] font-black uppercase text-slate-200 transition hover:bg-white/10"
+      >
+        Recheck
+      </button>
+      {deviceStatus?.message && (
+        <p className="text-[11px] font-semibold text-amber-100 sm:col-span-3">{deviceStatus.message}</p>
+      )}
+    </div>
   );
 }
 
@@ -274,6 +411,13 @@ export function LiveConsultationPanel({
   remoteStream = null,
   connectionState = "new",
   mediaError = null,
+  devices,
+  cameraDeviceId,
+  microphoneDeviceId,
+  deviceStatus,
+  onCameraDeviceChange,
+  onMicrophoneDeviceChange,
+  onRefreshDevices,
 }: {
   role: DashboardRole;
   counterpartName: string;
@@ -292,6 +436,13 @@ export function LiveConsultationPanel({
   remoteStream?: MediaStream | null;
   connectionState?: RTCPeerConnectionState;
   mediaError?: string | null;
+  devices?: MediaDeviceInfo[];
+  cameraDeviceId?: string;
+  microphoneDeviceId?: string;
+  deviceStatus?: MediaDeviceControlsProps["deviceStatus"];
+  onCameraDeviceChange?: (deviceId: string) => void;
+  onMicrophoneDeviceChange?: (deviceId: string) => void;
+  onRefreshDevices?: () => void;
 }) {
   const statusLabel = status === "connected" ? "Connected" : role === "doctor" ? "Waiting for Patient" : "Waiting room";
   const localVideoActive = Boolean(localStream?.getVideoTracks().length && isCameraOn);
@@ -327,6 +478,17 @@ export function LiveConsultationPanel({
               {mediaError}
             </span>
           )}
+        </div>
+        <div className="border-b border-slate-800 px-4 py-3">
+          <MediaDeviceControls
+            devices={devices}
+            cameraDeviceId={cameraDeviceId}
+            microphoneDeviceId={microphoneDeviceId}
+            deviceStatus={deviceStatus}
+            onCameraDeviceChange={onCameraDeviceChange}
+            onMicrophoneDeviceChange={onMicrophoneDeviceChange}
+            onRefreshDevices={onRefreshDevices}
+          />
         </div>
         <div className="relative grid min-h-[520px] gap-4 p-4 pb-28 md:grid-cols-2">
           <div className={`relative min-h-[420px] overflow-hidden rounded-xl border border-slate-800 bg-slate-900 ${remoteVideoActive ? "md:col-span-2" : ""}`}>
@@ -401,6 +563,151 @@ export function LiveConsultationPanel({
         {chat}
       </div>
     </div>
+  );
+}
+
+export function FloatingConsultationCall({
+  role,
+  counterpartName,
+  status,
+  isCameraOn,
+  isMicOn,
+  counterpartCameraOn = true,
+  localStream = null,
+  remoteStream = null,
+  connectionState = "new",
+  mediaError = null,
+  onOpen,
+  onToggleCamera,
+  onToggleMic,
+  onEnd,
+}: {
+  role: DashboardRole;
+  counterpartName: string;
+  status: "waiting" | "connected";
+  isCameraOn: boolean;
+  isMicOn: boolean;
+  counterpartCameraOn?: boolean;
+  localStream?: MediaStream | null;
+  remoteStream?: MediaStream | null;
+  connectionState?: RTCPeerConnectionState;
+  mediaError?: string | null;
+  onOpen: () => void;
+  onToggleCamera: () => void;
+  onToggleMic: () => void;
+  onEnd: () => void;
+}) {
+  const remoteVideoActive = Boolean(remoteStream?.getVideoTracks().length && counterpartCameraOn);
+  const localVideoActive = Boolean(localStream?.getVideoTracks().length && isCameraOn);
+  const stateText = connectionState === "connected" ? "Connected" : status === "waiting" ? "Waiting" : "Reconnecting";
+  const [position, setPosition] = useState({ x: 16, y: 16 });
+  const dragRef = useRef({
+    active: false,
+    startX: 0,
+    startY: 0,
+    originX: 16,
+    originY: 16,
+  });
+
+  const clampPosition = useCallback((nextX: number, nextY: number) => {
+    if (typeof window === "undefined") {
+      return { x: nextX, y: nextY };
+    }
+
+    const width = Math.min(352, window.innerWidth - 32);
+    const height = 360;
+
+    return {
+      x: Math.min(Math.max(8, nextX), Math.max(8, window.innerWidth - width - 8)),
+      y: Math.min(Math.max(8, nextY), Math.max(8, window.innerHeight - height - 8)),
+    };
+  }, []);
+
+  const handleDragStart = (event: React.PointerEvent<HTMLElement>) => {
+    const target = event.target as HTMLElement;
+    if (target.closest("button")) {
+      return;
+    }
+
+    dragRef.current = {
+      active: true,
+      startX: event.clientX,
+      startY: event.clientY,
+      originX: position.x,
+      originY: position.y,
+    };
+    event.currentTarget.setPointerCapture(event.pointerId);
+  };
+
+  const handleDragMove = (event: React.PointerEvent<HTMLElement>) => {
+    if (!dragRef.current.active) {
+      return;
+    }
+
+    const nextX = dragRef.current.originX + event.clientX - dragRef.current.startX;
+    const nextY = dragRef.current.originY + event.clientY - dragRef.current.startY;
+    setPosition(clampPosition(nextX, nextY));
+  };
+
+  const handleDragEnd = (event: React.PointerEvent<HTMLElement>) => {
+    dragRef.current.active = false;
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+  };
+
+  return (
+    <aside
+      className="fixed z-[90] w-[min(22rem,calc(100vw-2rem))] touch-none overflow-hidden rounded-xl border border-slate-700 bg-slate-950 text-white shadow-2xl shadow-black/40"
+      style={{ left: position.x, top: position.y }}
+      onPointerDown={handleDragStart}
+      onPointerMove={handleDragMove}
+      onPointerUp={handleDragEnd}
+      onPointerCancel={handleDragEnd}
+    >
+      <div className="relative h-44 bg-slate-900">
+        <div className="absolute left-3 top-3 z-10 rounded-full border border-white/10 bg-slate-950/70 px-2 py-1 text-[10px] font-black uppercase tracking-wider text-slate-300 backdrop-blur">
+          Drag
+        </div>
+        <VideoStream stream={remoteStream} active={counterpartCameraOn} />
+        {!remoteVideoActive && (
+          <div className="absolute inset-0 grid place-items-center bg-slate-900 p-4 text-center">
+            <div>
+              <p className="text-sm font-black">{counterpartName}</p>
+              <p className="mt-1 text-xs font-semibold text-slate-400">{role === "doctor" ? "Patient" : "Doctor"} video unavailable</p>
+            </div>
+          </div>
+        )}
+        <div className="absolute bottom-3 right-3 h-20 w-28 overflow-hidden rounded-lg border border-white/15 bg-slate-800 shadow-xl">
+          <VideoStream stream={localStream} muted active={isCameraOn} />
+          {!localVideoActive && <div className="grid h-full place-items-center text-[10px] font-black uppercase text-slate-300">You</div>}
+        </div>
+      </div>
+      <div className="space-y-3 p-3">
+        <div className="flex items-center justify-between gap-3">
+          <div className="min-w-0">
+            <p className="truncate text-sm font-black">{counterpartName}</p>
+            <p className={`text-[11px] font-bold ${mediaError ? "text-amber-200" : "text-emerald-200"}`}>
+              {mediaError || stateText}
+            </p>
+          </div>
+          <button type="button" onClick={onOpen} className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-white/10 text-white" aria-label="Open consultation">
+            <MaximizeIcon />
+          </button>
+        </div>
+        <div className="flex items-center justify-between gap-2">
+          <button type="button" onClick={onToggleCamera} className={`grid h-10 w-10 place-items-center rounded-full ${isCameraOn ? "bg-white/10" : "bg-red-500/20 text-red-100"}`} aria-label={isCameraOn ? "Turn camera off" : "Turn camera on"}>
+            <VideoControlIcon off={!isCameraOn} />
+          </button>
+          <button type="button" onClick={onToggleMic} className={`grid h-10 w-10 place-items-center rounded-full ${isMicOn ? "bg-white/10" : "bg-red-500/20 text-red-100"}`} aria-label={isMicOn ? "Mute microphone" : "Unmute microphone"}>
+            <MicControlIcon off={!isMicOn} />
+          </button>
+          <button type="button" onClick={onEnd} className="grid h-11 w-11 place-items-center rounded-full bg-brand-red text-white" aria-label="End consultation">
+            <PhoneDownIcon />
+          </button>
+        </div>
+      </div>
+    </aside>
   );
 }
 

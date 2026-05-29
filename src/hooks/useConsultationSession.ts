@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import type { ChatAttachment, ChatMessage, DashboardRole, RealtimeEvent } from "@/lib/dashboard/types";
 import { formatTimeNow } from "@/lib/dashboard/format";
 
@@ -17,25 +17,80 @@ type SessionState<TAppointment> = {
   messages: ChatMessage[];
 };
 
+const idleState = {
+  activeAppointment: null,
+  status: "idle",
+  isCameraOn: true,
+  isMicOn: true,
+  counterpartCameraOn: true,
+  counterpartMicOn: true,
+  isSpeakerReady: true,
+  roomId: "",
+  accessToken: "",
+  messages: [],
+} satisfies SessionState<{ id: string }>;
+
+function getInitialState<TAppointment>(persistKey?: string): SessionState<TAppointment> {
+  if (!persistKey || typeof window === "undefined") {
+    return idleState as SessionState<TAppointment>;
+  }
+
+  try {
+    const saved = window.sessionStorage.getItem(persistKey);
+    if (!saved) {
+      return idleState as SessionState<TAppointment>;
+    }
+
+    const parsed = JSON.parse(saved) as Partial<SessionState<TAppointment>>;
+    if (!parsed.activeAppointment || !parsed.roomId || (parsed.status !== "waiting" && parsed.status !== "connected")) {
+      return idleState as SessionState<TAppointment>;
+    }
+
+    return {
+      ...(idleState as SessionState<TAppointment>),
+      ...parsed,
+      status: parsed.status,
+      messages: parsed.messages || [],
+    };
+  } catch {
+    return idleState as SessionState<TAppointment>;
+  }
+}
+
 export function useConsultationSession<TAppointment extends { id: string }>({
   role,
   publish,
+  persistKey,
 }: {
   role: DashboardRole;
   publish: (event: RealtimeEvent) => void;
+  persistKey?: string;
 }) {
-  const [state, setState] = useState<SessionState<TAppointment>>({
-    activeAppointment: null,
-    status: "idle",
-    isCameraOn: true,
-    isMicOn: true,
-    counterpartCameraOn: true,
-    counterpartMicOn: true,
-    isSpeakerReady: true,
-    roomId: "",
-    accessToken: "",
-    messages: [],
-  });
+  const storageKey = useMemo(() => persistKey || `healthko:${role}:active-consultation`, [persistKey, role]);
+  const [hasLoadedStoredState, setHasLoadedStoredState] = useState(false);
+  const [state, setState] = useState<SessionState<TAppointment>>(idleState as SessionState<TAppointment>);
+
+  useEffect(() => {
+    setState(getInitialState<TAppointment>(storageKey));
+    setHasLoadedStoredState(true);
+  }, [storageKey]);
+
+  useEffect(() => {
+    if (!storageKey || typeof window === "undefined") {
+      return;
+    }
+
+    if (!hasLoadedStoredState) {
+      return;
+    }
+
+    if (!state.activeAppointment || !state.roomId || (state.status !== "waiting" && state.status !== "connected")) {
+      window.sessionStorage.removeItem(storageKey);
+      return;
+    }
+
+    window.sessionStorage.setItem(storageKey, JSON.stringify(state));
+  }, [hasLoadedStoredState, state, storageKey]);
 
   const openWaitingRoom = useCallback(
     (appointment: TAppointment) => {
@@ -49,6 +104,7 @@ export function useConsultationSession<TAppointment extends { id: string }>({
           {
             id: `${appointment.id}-waiting-room`,
             sender: role,
+            kind: "system",
             text:
               role === "doctor"
                 ? "Secure room is staged. Start the consultation when you are ready."
@@ -74,6 +130,7 @@ export function useConsultationSession<TAppointment extends { id: string }>({
           {
             id: `${appointment.id}-room-authorized-${Date.now()}`,
             sender: role,
+            kind: "system",
             text: nextStatus === "waiting" ? "Secure room opened. Waiting for the patient to join." : "Secure WebRTC room access authorized.",
             time: formatTimeNow(),
           },
@@ -166,6 +223,7 @@ export function useConsultationSession<TAppointment extends { id: string }>({
       const message: ChatMessage = {
         id: `${appointment.id}-${role}-${Date.now()}`,
         sender: role,
+        kind: "user",
         text: trimmed || (attachment ? `Shared ${attachment.name}` : ""),
         time: formatTimeNow(),
         attachment,
@@ -225,6 +283,7 @@ export function useConsultationSession<TAppointment extends { id: string }>({
             {
               id: `${event.appointmentId}-ended-${Date.now()}`,
               sender: event.actorRole,
+              kind: "system",
               text: "The consultation was ended.",
               time: formatTimeNow(),
             },
@@ -249,6 +308,7 @@ export function useConsultationSession<TAppointment extends { id: string }>({
             {
               id: `${event.appointmentId}-joined-${Date.now()}`,
               sender: event.actorRole,
+              kind: "system",
               text: "Participant joined the live consultation room.",
               time: formatTimeNow(),
             },
@@ -271,6 +331,7 @@ export function useConsultationSession<TAppointment extends { id: string }>({
           {
             id: event.messageId,
             sender: event.actorRole,
+            kind: "user",
             text: event.text,
             time: event.time,
             attachment: event.attachment,

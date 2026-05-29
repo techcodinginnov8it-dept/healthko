@@ -7,21 +7,28 @@ import { acceptAppointment, cancelAppointment, completeConsultation, referAppoin
 import { endVideoSession, startVideoSession } from "@/app/actions/video-session";
 import { AppointmentCalendar, type CalendarViewMode } from "@/components/dashboard/AppointmentCalendar";
 import { DashboardShell, type DashboardNavItem } from "@/components/dashboard/DashboardShell";
+import { NotificationBell } from "@/components/dashboard/NotificationBell";
 import { DoctorSettingsModule } from "@/components/dashboard/SettingsModule";
 import {
   AppointmentCard,
   ChatPanel,
   EmptyState,
+  FloatingConsultationCall,
   LiveConsultationPanel,
   PrescriptionList,
   StatGrid,
 } from "@/components/dashboard/SharedModules";
 import { useConsultationSession } from "@/hooks/useConsultationSession";
 import { useDashboardModule } from "@/hooks/useDashboardModule";
+import { useDashboardNotifications } from "@/hooks/useDashboardNotifications";
 import { useDashboardRealtime } from "@/hooks/useDashboardRealtime";
 import { useWebRTC } from "@/hooks/useWebRTC";
 import { formatDateTime } from "@/lib/dashboard/format";
+import { createDashboardNotification } from "@/lib/dashboard/notifications";
 import type {
+  ChatAttachment,
+  ChatMessage,
+  DashboardNotification,
   DashboardDoctor,
   DoctorAppointment,
   DoctorModuleId,
@@ -58,6 +65,20 @@ type DoctorDashboardClientProps = {
   initialModule?: DoctorModuleId;
 };
 
+type PatientStatusFilter = "all" | "active" | "pending" | "completed" | "prescriptions";
+type PatientRecordsTab = "records" | "history" | "prescriptions" | "session";
+
+type PatientProfile = DoctorAppointment["patient"] & {
+  appointments: DoctorAppointment[];
+  pending: DoctorAppointment[];
+  confirmed: DoctorAppointment[];
+  completed: DoctorAppointment[];
+  prescriptions: DoctorAppointment[];
+  nextAppointment: DoctorAppointment | null;
+  lastEncounter: DoctorAppointment | null;
+  activeAppointment: DoctorAppointment | null;
+};
+
 const DOCTOR_MODULES = [
   "overview",
   "live",
@@ -70,6 +91,473 @@ const DOCTOR_MODULES = [
   "analytics",
   "settings",
 ] as const satisfies readonly DoctorModuleId[];
+
+const PATIENT_STATUS_FILTERS: { id: PatientStatusFilter; label: string }[] = [
+  { id: "all", label: "All" },
+  { id: "active", label: "Active" },
+  { id: "pending", label: "Pending" },
+  { id: "completed", label: "Completed" },
+  { id: "prescriptions", label: "Rx" },
+];
+
+const PATIENT_RECORD_TABS: { id: PatientRecordsTab; label: string }[] = [
+  { id: "records", label: "Records" },
+  { id: "history", label: "History" },
+  { id: "prescriptions", label: "Rx" },
+  { id: "session", label: "Live" },
+];
+
+function getPatientDisplayName(patient: Pick<DoctorAppointment["patient"], "firstName" | "lastName">) {
+  return `${patient.firstName} ${patient.lastName}`.trim();
+}
+
+function getPatientAge(dob: string) {
+  const birthDate = new Date(dob);
+  if (Number.isNaN(birthDate.getTime())) {
+    return "Age unavailable";
+  }
+
+  const today = new Date();
+  let age = today.getFullYear() - birthDate.getFullYear();
+  const monthDelta = today.getMonth() - birthDate.getMonth();
+
+  if (monthDelta < 0 || (monthDelta === 0 && today.getDate() < birthDate.getDate())) {
+    age -= 1;
+  }
+
+  return age >= 0 ? `${age} years` : "Age unavailable";
+}
+
+function getStatusClasses(status: string) {
+  switch (status) {
+    case "CONFIRMED":
+      return "border-emerald-300/20 bg-emerald-400/10 text-emerald-100";
+    case "PENDING":
+      return "border-amber-300/20 bg-amber-400/10 text-amber-100";
+    case "COMPLETED":
+      return "border-sky-300/20 bg-sky-400/10 text-sky-100";
+    case "CANCELLED":
+      return "border-red-300/20 bg-red-400/10 text-red-100";
+    default:
+      return "border-slate-700 bg-slate-800 text-slate-200";
+  }
+}
+
+function PatientOperationsHub({
+  patients,
+  allPatientCount,
+  selectedPatient,
+  selectedConsultation,
+  activeAppointment,
+  activeSessionStatus,
+  patientSearch,
+  statusFilter,
+  recordsTab,
+  actionLoadingId,
+  messages,
+  onSearchChange,
+  onStatusFilterChange,
+  onRecordsTabChange,
+  onSelectPatient,
+  onSelectConsultation,
+  onOpenFollowUp,
+  onAccept,
+  onCancel,
+  onStartLive,
+  onOpenLive,
+  onSendMessage,
+}: {
+  patients: PatientProfile[];
+  allPatientCount: number;
+  selectedPatient: PatientProfile | null;
+  selectedConsultation: DoctorAppointment | null;
+  activeAppointment: DoctorAppointment | null;
+  activeSessionStatus: "idle" | "waiting" | "connected" | "ended";
+  patientSearch: string;
+  statusFilter: PatientStatusFilter;
+  recordsTab: PatientRecordsTab;
+  actionLoadingId: string | null;
+  messages: ChatMessage[];
+  onSearchChange: (value: string) => void;
+  onStatusFilterChange: (value: PatientStatusFilter) => void;
+  onRecordsTabChange: (value: PatientRecordsTab) => void;
+  onSelectPatient: (patientId: string) => void;
+  onSelectConsultation: (consultationId: string) => void;
+  onOpenFollowUp: (patientId: string, reason?: string | null) => void;
+  onAccept: (consultationId: string) => void;
+  onCancel: (consultationId: string) => void;
+  onStartLive: (appointment: DoctorAppointment) => void;
+  onOpenLive: () => void;
+  onSendMessage: (text: string, attachment?: ChatAttachment) => void;
+}) {
+  const selectedPatientName = selectedPatient ? getPatientDisplayName(selectedPatient) : "";
+  const selectedPatientActiveAppointment =
+    activeAppointment && selectedPatient && activeAppointment.patient.id === selectedPatient.id ? activeAppointment : null;
+  const selectedPatientMessages = selectedPatientActiveAppointment ? messages : [];
+  const selectedPatientLiveStatus = selectedPatientActiveAppointment
+    ? activeSessionStatus === "connected"
+      ? "Connected"
+      : activeSessionStatus === "waiting"
+        ? "Waiting room"
+        : "Session staged"
+    : "No active room";
+
+  return (
+    <section className="grid min-h-[calc(100vh-9rem)] gap-4 xl:grid-cols-[320px_minmax(0,1fr)_360px] 2xl:grid-cols-[360px_minmax(0,1fr)_400px]">
+      <aside className="flex min-h-0 flex-col rounded-xl border border-slate-850 bg-slate-900">
+        <header className="border-b border-slate-850 p-4">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <p className="text-[10px] font-black uppercase tracking-[0.2em] text-brand-teal">Directory</p>
+              <h2 className="mt-1 text-lg font-black text-white">Patients</h2>
+            </div>
+            <span className="rounded-full bg-slate-950 px-2.5 py-1 text-[10px] font-black text-slate-300">
+              {allPatientCount}
+            </span>
+          </div>
+          <input
+            value={patientSearch}
+            onChange={(event) => onSearchChange(event.target.value)}
+            placeholder="Search patient, reason, contact"
+            className="mt-4 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-xs font-semibold text-white outline-none focus:border-brand-teal"
+          />
+          <div className="mt-3 flex gap-2 overflow-x-auto pb-1">
+            {PATIENT_STATUS_FILTERS.map((filter) => (
+              <button
+                key={filter.id}
+                type="button"
+                onClick={() => onStatusFilterChange(filter.id)}
+                className={`shrink-0 rounded-full px-3 py-1.5 text-[10px] font-black uppercase ${
+                  statusFilter === filter.id ? "bg-brand-teal text-white" : "bg-slate-950 text-slate-400"
+                }`}
+              >
+                {filter.label}
+              </button>
+            ))}
+          </div>
+        </header>
+        <div className="min-h-0 flex-1 space-y-2 overflow-y-auto p-3">
+          {patients.length ? (
+            patients.map((patient) => {
+              const isSelected = selectedPatient?.id === patient.id;
+              const nextLabel = patient.nextAppointment ? formatDateTime(patient.nextAppointment.scheduledAt) : "No upcoming visit";
+
+              return (
+                <button
+                  key={patient.id}
+                  type="button"
+                  onClick={() => onSelectPatient(patient.id)}
+                  className={`w-full rounded-xl border p-3 text-left transition ${
+                    isSelected
+                      ? "border-brand-teal bg-brand-teal/10 shadow-[0_0_0_1px_rgba(20,184,166,0.2)]"
+                      : "border-slate-800 bg-slate-950 hover:border-slate-700"
+                  }`}
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-black text-white">{getPatientDisplayName(patient)}</p>
+                      <p className="mt-1 truncate text-[11px] font-semibold text-slate-400">{patient.email}</p>
+                    </div>
+                    {patient.activeAppointment && (
+                      <span className="rounded-full bg-emerald-400/15 px-2 py-0.5 text-[10px] font-black uppercase text-emerald-200">
+                        Live
+                      </span>
+                    )}
+                  </div>
+                  <div className="mt-3 grid grid-cols-3 gap-2 text-center">
+                    <span className="rounded-lg bg-slate-900 px-2 py-1 text-[10px] font-black text-slate-300">{patient.pending.length} pending</span>
+                    <span className="rounded-lg bg-slate-900 px-2 py-1 text-[10px] font-black text-slate-300">{patient.confirmed.length} active</span>
+                    <span className="rounded-lg bg-slate-900 px-2 py-1 text-[10px] font-black text-slate-300">{patient.completed.length} records</span>
+                  </div>
+                  <p className="mt-3 text-[11px] font-semibold text-slate-500">{nextLabel}</p>
+                </button>
+              );
+            })
+          ) : (
+            <EmptyState title="No matching patients" body="Adjust search or filters to review patient records." />
+          )}
+        </div>
+      </aside>
+
+      <section className="min-w-0 space-y-4">
+        {selectedPatient ? (
+          <>
+            <section className="rounded-xl border border-slate-850 bg-slate-900 p-5 text-white">
+              <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <h2 className="text-2xl font-black">{selectedPatientName}</h2>
+                    <span className="rounded-full border border-slate-700 bg-slate-950 px-2.5 py-1 text-[10px] font-black uppercase text-slate-300">
+                      {selectedPatient.emailVerified ? "Verified" : "Unverified"}
+                    </span>
+                  </div>
+                  <p className="mt-2 text-sm font-semibold text-slate-400">
+                    {getPatientAge(selectedPatient.dob)} / {selectedPatient.gender || "Unspecified"} / DOB {selectedPatient.dob}
+                  </p>
+                  <p className="mt-1 text-xs font-semibold text-slate-500">
+                    {selectedPatient.email} / {selectedPatient.countryCode || ""} {selectedPatient.phone}
+                  </p>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={() => onOpenFollowUp(selectedPatient.id, selectedConsultation?.reason)}
+                    className="rounded-lg bg-brand-teal px-3 py-2 text-xs font-black text-white"
+                  >
+                    Schedule Follow-Up
+                  </button>
+                  {selectedPatientActiveAppointment ? (
+                    <button type="button" onClick={onOpenLive} className="rounded-lg bg-brand-red px-3 py-2 text-xs font-black text-white">
+                      Open Live Room
+                    </button>
+                  ) : selectedPatient.nextAppointment ? (
+                    <button
+                      type="button"
+                      disabled={actionLoadingId === selectedPatient.nextAppointment.id}
+                      onClick={() => onStartLive(selectedPatient.nextAppointment as DoctorAppointment)}
+                      className="rounded-lg bg-brand-red px-3 py-2 text-xs font-black text-white disabled:bg-slate-800"
+                    >
+                      Start Consultation
+                    </button>
+                  ) : null}
+                </div>
+              </div>
+              <div className="mt-5 grid gap-3 md:grid-cols-4">
+                {[
+                  { label: "Encounters", value: selectedPatient.appointments.length },
+                  { label: "Open", value: selectedPatient.pending.length + selectedPatient.confirmed.length },
+                  { label: "Completed", value: selectedPatient.completed.length },
+                  { label: "Prescriptions", value: selectedPatient.prescriptions.length },
+                ].map((stat) => (
+                  <div key={stat.label} className="rounded-lg border border-slate-800 bg-slate-950 px-3 py-3">
+                    <p className="text-xl font-black">{stat.value}</p>
+                    <p className="mt-1 text-[10px] font-black uppercase tracking-wider text-slate-500">{stat.label}</p>
+                  </div>
+                ))}
+              </div>
+            </section>
+
+            <section className="grid gap-4 2xl:grid-cols-[minmax(0,1fr)_340px]">
+              <div className="rounded-xl border border-slate-850 bg-slate-900 p-4">
+                <div className="mb-3 flex items-center justify-between gap-3">
+                  <div>
+                    <p className="text-[10px] font-black uppercase tracking-[0.2em] text-brand-teal">Clinical Workspace</p>
+                    <h3 className="text-base font-black text-white">Consultation Context</h3>
+                  </div>
+                  {selectedConsultation && (
+                    <span className={`rounded-full border px-2.5 py-1 text-[10px] font-black uppercase ${getStatusClasses(selectedConsultation.status)}`}>
+                      {selectedConsultation.status}
+                    </span>
+                  )}
+                </div>
+                {selectedConsultation ? (
+                  <div className="space-y-4">
+                    <div className="rounded-xl border border-amber-300/20 border-l-4 border-l-amber-300 bg-amber-300/10 p-4">
+                      <p className="text-[10px] font-black uppercase tracking-[0.2em] text-amber-200">Chief Complaint</p>
+                      <p className="mt-2 text-sm font-semibold leading-relaxed text-amber-50">
+                        {selectedConsultation.reason || "No chief complaint captured."}
+                      </p>
+                      <p className="mt-3 text-xs font-bold text-amber-100">{formatDateTime(selectedConsultation.scheduledAt)}</p>
+                    </div>
+                    <div className="grid gap-3 lg:grid-cols-2">
+                      <ClinicalTextBlock title="Active Care Notes" body={selectedConsultation.notes || "No signed clinical notes for this encounter."} />
+                      <ClinicalTextBlock title="Medication Plan" body={selectedConsultation.prescription || "No prescription issued for this encounter."} />
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      {selectedConsultation.status === "PENDING" && (
+                        <>
+                          <button
+                            type="button"
+                            disabled={actionLoadingId === selectedConsultation.id}
+                            onClick={() => onAccept(selectedConsultation.id)}
+                            className="rounded-lg bg-brand-teal px-3 py-2 text-xs font-black text-white disabled:bg-slate-800"
+                          >
+                            Accept Request
+                          </button>
+                          <button
+                            type="button"
+                            disabled={actionLoadingId === selectedConsultation.id}
+                            onClick={() => onCancel(selectedConsultation.id)}
+                            className="rounded-lg bg-slate-800 px-3 py-2 text-xs font-black text-white"
+                          >
+                            Cancel
+                          </button>
+                        </>
+                      )}
+                      {selectedConsultation.status === "CONFIRMED" && (
+                        <button
+                          type="button"
+                          disabled={actionLoadingId === selectedConsultation.id}
+                          onClick={() => onStartLive(selectedConsultation)}
+                          className="rounded-lg bg-brand-red px-3 py-2 text-xs font-black text-white disabled:bg-slate-800"
+                        >
+                          Start Live Session
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                ) : (
+                  <EmptyState title="No consultation selected" body="Select a patient encounter from the record panel." />
+                )}
+              </div>
+
+              <div className="rounded-xl border border-slate-850 bg-slate-900 p-4">
+                <p className="text-[10px] font-black uppercase tracking-[0.2em] text-brand-teal">Realtime Communication</p>
+                <div className="mt-3">
+                  {selectedPatientActiveAppointment ? (
+                    <ChatPanel role="doctor" messages={selectedPatientMessages} onSend={onSendMessage} />
+                  ) : (
+                    <div className="rounded-xl border border-slate-800 bg-slate-950 p-5">
+                      <p className="text-sm font-black text-white">No active consultation chat</p>
+                      <p className="mt-2 text-xs font-semibold leading-relaxed text-slate-400">
+                        Start or open a live room for this patient to continue secure consultation messaging.
+                      </p>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </section>
+          </>
+        ) : (
+          <EmptyState title="No patients yet" body="Patients appear after appointment requests are booked." />
+        )}
+      </section>
+
+      <aside className="min-h-0 rounded-xl border border-slate-850 bg-slate-900">
+        <header className="border-b border-slate-850 p-4">
+          <p className="text-[10px] font-black uppercase tracking-[0.2em] text-brand-teal">Records</p>
+          <h2 className="mt-1 text-lg font-black text-white">Patient Chart</h2>
+          <div className="mt-3 grid grid-cols-4 gap-1 rounded-lg bg-slate-950 p-1">
+            {PATIENT_RECORD_TABS.map((tab) => (
+              <button
+                key={tab.id}
+                type="button"
+                onClick={() => onRecordsTabChange(tab.id)}
+                className={`rounded-md px-2 py-1.5 text-[10px] font-black uppercase ${
+                  recordsTab === tab.id ? "bg-brand-teal text-white" : "text-slate-400"
+                }`}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </div>
+        </header>
+        <div className="max-h-[calc(100vh-15rem)] space-y-3 overflow-y-auto p-4">
+          {selectedPatient ? (
+            <>
+              {recordsTab === "records" && (
+                <div className="space-y-3">
+                  <ClinicalTextBlock title="Medical Record Summary" body={selectedPatient.lastEncounter?.notes || "No completed medical record summary is available yet."} />
+                  <ClinicalTextBlock title="Current Medication" body={selectedPatient.prescriptions.at(-1)?.prescription || "No active prescription on file."} />
+                  <ClinicalTextBlock title="Care Continuity" body={selectedPatient.nextAppointment ? `Next confirmed visit: ${formatDateTime(selectedPatient.nextAppointment.scheduledAt)}` : "No confirmed follow-up is scheduled."} />
+                </div>
+              )}
+
+              {recordsTab === "history" && (
+                <RecordTimeline
+                  appointments={selectedPatient.appointments}
+                  selectedConsultationId={selectedConsultation?.id || ""}
+                  onSelectConsultation={onSelectConsultation}
+                />
+              )}
+
+              {recordsTab === "prescriptions" && (
+                <div className="space-y-3">
+                  {selectedPatient.prescriptions.length ? (
+                    selectedPatient.prescriptions.map((appointment) => (
+                      <AppointmentCard
+                        key={appointment.id}
+                        tone="dark"
+                        title={appointment.prescription || "Prescription"}
+                        subtitle={getPatientDisplayName(selectedPatient)}
+                        scheduledAt={appointment.scheduledAt}
+                        status={appointment.status}
+                        reason={appointment.reason}
+                      />
+                    ))
+                  ) : (
+                    <EmptyState title="No prescriptions" body="Medication plans issued during consultations appear here." />
+                  )}
+                </div>
+              )}
+
+              {recordsTab === "session" && (
+                <div className="space-y-3">
+                  <div className="rounded-xl border border-slate-800 bg-slate-950 p-4">
+                    <p className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-500">Live Session Status</p>
+                    <p className="mt-2 text-lg font-black text-white">{selectedPatientLiveStatus}</p>
+                    {selectedPatientActiveAppointment && (
+                      <button type="button" onClick={onOpenLive} className="mt-4 w-full rounded-lg bg-brand-red px-3 py-2 text-xs font-black text-white">
+                        Return To Live Room
+                      </button>
+                    )}
+                  </div>
+                  <RecordTimeline
+                    appointments={selectedPatient.confirmed}
+                    selectedConsultationId={selectedConsultation?.id || ""}
+                    onSelectConsultation={onSelectConsultation}
+                  />
+                </div>
+              )}
+            </>
+          ) : (
+            <EmptyState title="No chart selected" body="Choose a patient to open their longitudinal chart." />
+          )}
+        </div>
+      </aside>
+    </section>
+  );
+}
+
+function ClinicalTextBlock({ title, body }: { title: string; body: string }) {
+  return (
+    <div className="rounded-xl border border-slate-800 bg-slate-950 p-4">
+      <p className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-500">{title}</p>
+      <p className="mt-2 whitespace-pre-wrap text-sm font-semibold leading-relaxed text-slate-200">{body}</p>
+    </div>
+  );
+}
+
+function RecordTimeline({
+  appointments,
+  selectedConsultationId,
+  onSelectConsultation,
+}: {
+  appointments: DoctorAppointment[];
+  selectedConsultationId: string;
+  onSelectConsultation: (consultationId: string) => void;
+}) {
+  return appointments.length ? (
+    <div className="space-y-2">
+      {appointments.map((appointment) => {
+        const isSelected = appointment.id === selectedConsultationId;
+
+        return (
+          <button
+            key={appointment.id}
+            type="button"
+            onClick={() => onSelectConsultation(appointment.id)}
+            className={`w-full rounded-xl border p-3 text-left ${
+              isSelected ? "border-brand-teal bg-brand-teal/10" : "border-slate-800 bg-slate-950 hover:border-slate-700"
+            }`}
+          >
+            <div className="flex items-start justify-between gap-3">
+              <p className="text-xs font-black text-white">{formatDateTime(appointment.scheduledAt)}</p>
+              <span className={`rounded-full border px-2 py-0.5 text-[10px] font-black uppercase ${getStatusClasses(appointment.status)}`}>
+                {appointment.status}
+              </span>
+            </div>
+            <p className="mt-2 line-clamp-2 text-xs font-semibold text-slate-400">
+              {appointment.reason || appointment.notes || appointment.prescription || "Clinical encounter"}
+            </p>
+          </button>
+        );
+      })}
+    </div>
+  ) : (
+    <EmptyState title="No records" body="Encounters for this patient appear here." />
+  );
+}
 
 export default function DoctorDashboardClient({ doctor, doctors, initialModule = "overview" }: DoctorDashboardClientProps) {
   const router = useRouter();
@@ -87,6 +575,12 @@ export default function DoctorDashboardClient({ doctor, doctors, initialModule =
   const [followUpTime, setFollowUpTime] = useState("");
   const [followUpReason, setFollowUpReason] = useState("");
   const [calendarView, setCalendarView] = useState<CalendarViewMode>("week");
+  const [patientSearch, setPatientSearch] = useState("");
+  const [patientStatusFilter, setPatientStatusFilter] = useState<PatientStatusFilter>("all");
+  const [selectedPatientId, setSelectedPatientId] = useState("");
+  const [selectedConsultationId, setSelectedConsultationId] = useState("");
+  const [patientRecordsTab, setPatientRecordsTab] = useState<PatientRecordsTab>("records");
+  const [patientReferenceTime] = useState(() => Date.now());
   const [calendarAnchorDate, setCalendarAnchorDate] = useState(() => {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
@@ -104,6 +598,11 @@ export default function DoctorDashboardClient({ doctor, doctors, initialModule =
   }, []);
 
   const onRealtimeEvent = useCallback((event: RealtimeEvent) => {
+    const targetsAnotherDoctor = "targetDoctorId" in event && event.targetDoctorId && event.targetDoctorId !== doctor.id;
+    if (targetsAnotherDoctor) {
+      return;
+    }
+
     if (
       event.actorRole === "patient" &&
       (
@@ -123,9 +622,18 @@ export default function DoctorDashboardClient({ doctor, doctors, initialModule =
   }, [doctor.id, router]);
 
   const realtime = useDashboardRealtime(onRealtimeEvent);
+  const doctorScopedRealtimeEvent = useMemo(() => {
+    const event = realtime.lastEvent;
+    if (!event || !("targetDoctorId" in event) || !event.targetDoctorId || event.targetDoctorId === doctor.id) {
+      return event;
+    }
+
+    return null;
+  }, [doctor.id, realtime.lastEvent]);
   const session = useConsultationSession<DoctorAppointment>({
     role: "doctor",
     publish: realtime.publish,
+    persistKey: `healthko:doctor:${doctor.id}:active-consultation`,
   });
   const webRTC = useWebRTC({
     roomId: session.roomId,
@@ -134,6 +642,12 @@ export default function DoctorDashboardClient({ doctor, doctors, initialModule =
     isCameraOn: session.isCameraOn,
     isMicOn: session.isMicOn,
     isActive: Boolean(session.roomId && (session.status === "waiting" || session.status === "connected")),
+    signalingReady: realtime.socketReady,
+    onRemoteSessionEnded: () => {
+      session.endSession(false);
+      showToast("error", "The other participant ended the consultation.");
+      setActiveModule("overview");
+    },
   });
   const receiveRealtimeEvent = session.receiveRealtimeEvent;
 
@@ -141,31 +655,183 @@ export default function DoctorDashboardClient({ doctor, doctors, initialModule =
     receiveRealtimeEvent(realtime.lastEvent);
   }, [realtime.lastEvent, receiveRealtimeEvent]);
 
-  useEffect(() => {
-    setDoctorAvailability(doctor.availability);
-  }, [doctor.availability]);
-
-  const pendingAppointments = doctor.bookings.filter((booking) => booking.status === "PENDING");
-  const confirmedAppointments = doctor.bookings.filter(
-    (booking) => booking.status === "CONFIRMED" && new Date(booking.scheduledAt) >= new Date()
+  const pendingAppointments = useMemo(
+    () => doctor.bookings.filter((booking) => booking.status === "PENDING"),
+    [doctor.bookings]
   );
-  const completedConsultations = doctor.bookings.filter((booking) => booking.status === "COMPLETED");
+  const confirmedAppointments = useMemo(
+    () => doctor.bookings.filter(
+      (booking) => booking.status === "CONFIRMED" && new Date(booking.scheduledAt).getTime() >= patientReferenceTime
+    ),
+    [doctor.bookings, patientReferenceTime]
+  );
+  const completedConsultations = useMemo(
+    () => doctor.bookings.filter((booking) => booking.status === "COMPLETED"),
+    [doctor.bookings]
+  );
   const patients = useMemo(() => {
     const map = new Map<string, DoctorAppointment["patient"]>();
     doctor.bookings.forEach((booking) => map.set(booking.patient.id, booking.patient));
     return Array.from(map.values());
   }, [doctor.bookings]);
-  const prescriptions = doctor.bookings.filter((booking) => booking.prescription);
-  const notifications = [
-    ...pendingAppointments.slice(0, 4).map((booking) => ({
-      title: "New appointment request",
-      body: `${booking.patient.firstName} ${booking.patient.lastName} · ${formatDateTime(booking.scheduledAt)}`,
-    })),
-    ...confirmedAppointments.slice(0, 2).map((booking) => ({
-      title: "Live room ready",
-      body: `${booking.patient.firstName} ${booking.patient.lastName} is scheduled for ${formatDateTime(booking.scheduledAt)}`,
-    })),
-  ];
+  const prescriptions = useMemo(
+    () => doctor.bookings.filter((booking) => booking.prescription),
+    [doctor.bookings]
+  );
+  const patientProfiles = useMemo<PatientProfile[]>(() => {
+    const patientMap = new Map<string, PatientProfile>();
+    const sortedBookings = [...doctor.bookings].sort(
+      (a, b) => new Date(a.scheduledAt).getTime() - new Date(b.scheduledAt).getTime()
+    );
+
+    sortedBookings.forEach((booking) => {
+      const existing = patientMap.get(booking.patient.id);
+      const profile: PatientProfile = existing || {
+        ...booking.patient,
+        appointments: [],
+        pending: [],
+        confirmed: [],
+        completed: [],
+        prescriptions: [],
+        nextAppointment: null,
+        lastEncounter: null,
+        activeAppointment: null,
+      };
+
+      profile.appointments.push(booking);
+
+      if (booking.status === "PENDING") {
+        profile.pending.push(booking);
+      }
+
+      if (booking.status === "CONFIRMED") {
+        profile.confirmed.push(booking);
+      }
+
+      if (booking.status === "COMPLETED") {
+        profile.completed.push(booking);
+      }
+
+      if (booking.prescription) {
+        profile.prescriptions.push(booking);
+      }
+
+      patientMap.set(booking.patient.id, profile);
+    });
+
+    return Array.from(patientMap.values())
+      .map((profile) => {
+        const futureAppointments = profile.appointments.filter(
+          (booking) => booking.status === "CONFIRMED" && new Date(booking.scheduledAt).getTime() >= patientReferenceTime
+        );
+        const pastAppointments = profile.appointments.filter(
+          (booking) => new Date(booking.scheduledAt).getTime() < patientReferenceTime || booking.status === "COMPLETED"
+        );
+
+        return {
+          ...profile,
+          nextAppointment: futureAppointments[0] || null,
+          lastEncounter: pastAppointments[pastAppointments.length - 1] || null,
+          activeAppointment:
+            session.activeAppointment?.patient.id === profile.id ? session.activeAppointment : null,
+        };
+      })
+      .sort((a, b) => {
+        const aTime = new Date(a.nextAppointment?.scheduledAt || a.lastEncounter?.scheduledAt || 0).getTime();
+        const bTime = new Date(b.nextAppointment?.scheduledAt || b.lastEncounter?.scheduledAt || 0).getTime();
+        return bTime - aTime;
+      });
+  }, [doctor.bookings, patientReferenceTime, session.activeAppointment]);
+
+  const filteredPatientProfiles = useMemo(() => {
+    const query = patientSearch.trim().toLowerCase();
+
+    return patientProfiles.filter((profile) => {
+      const searchable = [
+        profile.firstName,
+        profile.lastName,
+        profile.email,
+        profile.phone,
+        profile.gender || "",
+        profile.appointments.map((appointment) => appointment.reason || "").join(" "),
+      ].join(" ").toLowerCase();
+
+      const matchesSearch = !query || searchable.includes(query);
+      const matchesFilter =
+        patientStatusFilter === "all" ||
+        (patientStatusFilter === "active" && profile.confirmed.length > 0) ||
+        (patientStatusFilter === "pending" && profile.pending.length > 0) ||
+        (patientStatusFilter === "completed" && profile.completed.length > 0) ||
+        (patientStatusFilter === "prescriptions" && profile.prescriptions.length > 0);
+
+      return matchesSearch && matchesFilter;
+    });
+  }, [patientProfiles, patientSearch, patientStatusFilter]);
+
+  const selectedPatient = useMemo(() => {
+    return (
+      patientProfiles.find((profile) => profile.id === selectedPatientId) ||
+      filteredPatientProfiles[0] ||
+      patientProfiles[0] ||
+      null
+    );
+  }, [filteredPatientProfiles, patientProfiles, selectedPatientId]);
+
+  const selectedConsultation = useMemo(() => {
+    if (!selectedPatient) {
+      return null;
+    }
+
+    return (
+      selectedPatient.appointments.find((booking) => booking.id === selectedConsultationId) ||
+      selectedPatient.activeAppointment ||
+      selectedPatient.nextAppointment ||
+      selectedPatient.lastEncounter ||
+      selectedPatient.appointments[0] ||
+      null
+    );
+  }, [selectedConsultationId, selectedPatient]);
+
+  const notificationSeed = useMemo<DashboardNotification[]>(
+    () => [
+      ...pendingAppointments.slice(0, 4).map((booking) =>
+        createDashboardNotification({
+          id: `doctor-request-${booking.id}`,
+          title: "New appointment request",
+          body: `${booking.patient.firstName} ${booking.patient.lastName} / ${formatDateTime(booking.scheduledAt)}`,
+          kind: "appointment",
+          createdAt: booking.createdAt,
+          readAt: null,
+        })
+      ),
+      ...confirmedAppointments.slice(0, 2).map((booking) =>
+        createDashboardNotification({
+          id: `doctor-consultation-${booking.id}`,
+          title: "Consultation reminder",
+          body: `${booking.patient.firstName} ${booking.patient.lastName} is scheduled for ${formatDateTime(booking.scheduledAt)}`,
+          kind: "consultation",
+          createdAt: booking.createdAt,
+          readAt: booking.createdAt,
+        })
+      ),
+      ...prescriptions.slice(0, 2).map((booking) =>
+        createDashboardNotification({
+          id: `doctor-prescription-${booking.id}`,
+          title: "Prescription issued",
+          body: `${booking.patient.firstName} ${booking.patient.lastName} has an active prescription record.`,
+          kind: "prescription",
+          createdAt: booking.createdAt,
+          readAt: booking.createdAt,
+        })
+      ),
+    ],
+    [confirmedAppointments, pendingAppointments, prescriptions]
+  );
+  const dashboardNotifications = useDashboardNotifications({
+    role: "doctor",
+    initialNotifications: notificationSeed,
+    realtimeEvent: doctorScopedRealtimeEvent,
+  });
 
   const visibleScheduleAppointments = useMemo(() => {
     const start = new Date(calendarAnchorDate);
@@ -178,6 +844,8 @@ export default function DoctorDashboardClient({ doctor, doctors, initialModule =
       start.setDate(1);
       end.setMonth(start.getMonth() + 1, 1);
     } else {
+      start.setDate(start.getDate() - start.getDay());
+      end.setTime(start.getTime());
       end.setDate(start.getDate() + 7);
     }
 
@@ -278,16 +946,22 @@ export default function DoctorDashboardClient({ doctor, doctors, initialModule =
       appointmentId: result.consultation?.id || "follow-up",
       actorRole: "doctor",
       scheduledAt,
-      title: "Follow-up consultation scheduled",
-      body: `Your doctor scheduled a follow-up for ${formatDateTime(scheduledAt)}.`,
+      title: "Follow-up confirmation requested",
+      body: `Your doctor requested a follow-up for ${formatDateTime(scheduledAt)}. Please confirm or request a new time.`,
     });
     setScheduleState({ loading: false, error: "", success: "" });
-    showToast("success", "Follow-up consultation scheduled and patient dashboard updated.");
+    showToast("success", "Follow-up request sent for patient confirmation.");
     setFollowUpPatientId("");
     setFollowUpDate("");
     setFollowUpTime("");
     setFollowUpReason("");
     router.refresh();
+  };
+
+  const openFollowUpForPatient = (patientId: string, reason?: string | null) => {
+    setFollowUpPatientId(patientId);
+    setFollowUpReason(reason ? `Follow-up: ${reason}` : "");
+    setActiveModule("schedule");
   };
 
   const handleReferral = async (consultationId: string) => {
@@ -364,13 +1038,20 @@ export default function DoctorDashboardClient({ doctor, doctors, initialModule =
 
     realtime.publish({ type: "appointment:updated", appointmentId: session.activeAppointment.id, actorRole: "doctor" });
     setSubmitState({ loading: false, error: "", success: "Consultation completed and patient portal updated." });
+    if (session.roomId) {
+      realtime.endVideoRoom(session.roomId);
+    }
     session.endSession();
     router.refresh();
   };
 
   const handleEndSession = async () => {
+    const roomId = session.roomId;
     if (session.activeAppointment) {
       await endVideoSession(session.activeAppointment.id);
+    }
+    if (roomId) {
+      realtime.endVideoRoom(roomId);
     }
     session.endSession();
     setActiveModule("overview");
@@ -392,6 +1073,15 @@ export default function DoctorDashboardClient({ doctor, doctors, initialModule =
         meta: `NPI ${doctor.npi}`,
       }}
       connectionState={realtime.connectionState}
+      notificationBell={
+        <NotificationBell
+          role="doctor"
+          notifications={dashboardNotifications.notifications}
+          unreadCount={dashboardNotifications.unreadCount}
+          onMarkAllRead={dashboardNotifications.markAllRead}
+          onOpenNotifications={() => setActiveModule("notifications")}
+        />
+      }
       collapsed={collapsed}
       onToggleCollapsed={() => setCollapsed((value) => !value)}
       onNavigate={setActiveModule}
@@ -418,6 +1108,25 @@ export default function DoctorDashboardClient({ doctor, doctors, initialModule =
           </div>
         ))}
       </div>
+
+      {session.activeAppointment && activeModule !== "live" && (session.status === "waiting" || session.status === "connected") && (
+        <FloatingConsultationCall
+          role="doctor"
+          counterpartName={`${session.activeAppointment.patient.firstName} ${session.activeAppointment.patient.lastName}`}
+          status={session.status}
+          isCameraOn={session.isCameraOn}
+          isMicOn={session.isMicOn}
+          counterpartCameraOn={session.counterpartCameraOn}
+          onToggleCamera={session.toggleCamera}
+          onToggleMic={session.toggleMic}
+          onEnd={handleEndSession}
+          onOpen={() => setActiveModule("live")}
+          localStream={webRTC.localStream}
+          remoteStream={webRTC.remoteStream}
+          connectionState={webRTC.connectionState}
+          mediaError={webRTC.error || webRTC.deviceStatus.message}
+        />
+      )}
 
       {activeModule === "overview" && (
         <div className="space-y-6">
@@ -476,6 +1185,13 @@ export default function DoctorDashboardClient({ doctor, doctors, initialModule =
             remoteStream={webRTC.remoteStream}
             connectionState={webRTC.connectionState}
             mediaError={webRTC.error}
+            devices={webRTC.devices}
+            cameraDeviceId={webRTC.cameraDeviceId}
+            microphoneDeviceId={webRTC.microphoneDeviceId}
+            deviceStatus={webRTC.deviceStatus}
+            onCameraDeviceChange={webRTC.setCameraDeviceId}
+            onMicrophoneDeviceChange={webRTC.setMicrophoneDeviceId}
+            onRefreshDevices={() => void webRTC.refreshDevices()}
             chat={<ChatPanel role="doctor" messages={session.messages} onSend={session.sendMessage} />}
             documentation={
               <section className="rounded-xl border border-slate-800 bg-slate-900 p-4">
@@ -522,34 +1238,33 @@ export default function DoctorDashboardClient({ doctor, doctors, initialModule =
       )}
 
       {activeModule === "patients" && (
-        <div className="space-y-6">
-        <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-          {patients.length ? patients.map((patientRecord) => (
-            <article key={patientRecord.id} className="rounded-xl border border-slate-850 bg-slate-900 p-5">
-              <p className="text-sm font-black text-white">{patientRecord.firstName} {patientRecord.lastName}</p>
-              <p className="mt-1 text-xs font-semibold text-slate-400">{patientRecord.email}</p>
-              <p className="mt-3 text-xs text-slate-500">DOB {patientRecord.dob} · {patientRecord.gender || "Unspecified"}</p>
-            </article>
-          )) : <EmptyState title="No patients yet" body="Patients appear after appointment requests are booked." />}
-        </section>
-        <section className="space-y-3">
-          <div className="flex flex-col gap-1">
-            <h2 className="text-lg font-black text-white">Embedded Records</h2>
-            <p className="text-xs font-semibold text-slate-400">Notes and prescriptions stay attached to completed patient visits.</p>
-          </div>
-          {completedConsultations.length ? completedConsultations.map((booking) => (
-            <AppointmentCard
-              key={booking.id}
-              tone={tone}
-              title={`${booking.patient.firstName} ${booking.patient.lastName}`}
-              subtitle={booking.notes || "No notes captured"}
-              scheduledAt={booking.scheduledAt}
-              status={booking.status}
-              reason={booking.prescription ? `Rx: ${booking.prescription}` : booking.reason}
-            />
-          )) : <EmptyState title="No completed records" body="Completed live consultations create patient records here." />}
-        </section>
-        </div>
+        <PatientOperationsHub
+          patients={filteredPatientProfiles}
+          allPatientCount={patientProfiles.length}
+          selectedPatient={selectedPatient}
+          selectedConsultation={selectedConsultation}
+          activeAppointment={session.activeAppointment}
+          activeSessionStatus={session.status}
+          patientSearch={patientSearch}
+          statusFilter={patientStatusFilter}
+          recordsTab={patientRecordsTab}
+          actionLoadingId={actionLoadingId}
+          messages={session.messages}
+          onSearchChange={setPatientSearch}
+          onStatusFilterChange={setPatientStatusFilter}
+          onRecordsTabChange={setPatientRecordsTab}
+          onSelectPatient={(patientId) => {
+            setSelectedPatientId(patientId);
+            setSelectedConsultationId("");
+          }}
+          onSelectConsultation={setSelectedConsultationId}
+          onOpenFollowUp={openFollowUpForPatient}
+          onAccept={handleAccept}
+          onCancel={handleCancel}
+          onStartLive={startLiveSession}
+          onOpenLive={() => setActiveModule("live")}
+          onSendMessage={session.sendMessage}
+        />
       )}
 
       {activeModule === "schedule" && (
@@ -559,7 +1274,7 @@ export default function DoctorDashboardClient({ doctor, doctors, initialModule =
               <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
                 <div>
                   <p className="text-[10px] font-black uppercase tracking-[0.2em] text-brand-teal">Main Stage</p>
-                  <h2 className="mt-1 text-2xl font-black">Weekly Schedule Grid</h2>
+                  <h2 className="mt-1 text-2xl font-black">Consultation Calendar</h2>
                   <p className="mt-2 max-w-2xl text-sm font-semibold text-slate-400">
                     Drag appointment blocks to rebook within open availability. Confirmed visits and pending requests update across dashboards.
                   </p>
@@ -741,10 +1456,11 @@ export default function DoctorDashboardClient({ doctor, doctors, initialModule =
 
       {activeModule === "notifications" && (
         <section className="space-y-3">
-          {notifications.length ? notifications.map((item) => (
-            <article key={`${item.title}-${item.body}`} className="rounded-xl border border-slate-850 bg-slate-900 p-4">
+          {dashboardNotifications.notifications.length ? dashboardNotifications.notifications.map((item) => (
+            <article key={item.id} className="rounded-xl border border-slate-850 bg-slate-900 p-4">
               <p className="text-sm font-black text-white">{item.title}</p>
               <p className="mt-1 text-xs font-semibold text-slate-400">{item.body}</p>
+              <p className="mt-2 text-[10px] font-black uppercase tracking-wider text-slate-500">{item.kind || "system"} / {formatDateTime(item.createdAt)}</p>
             </article>
           )) : <EmptyState title="No notifications" body="Appointment, message, and prescription alerts appear here." />}
         </section>

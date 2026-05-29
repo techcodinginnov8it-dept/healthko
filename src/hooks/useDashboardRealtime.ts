@@ -28,6 +28,7 @@ export function useDashboardRealtime(onEvent?: (event: RealtimeEvent) => void) {
   );
   const [reconnectState, setReconnectState] = useState<ConnectionState | null>(null);
   const [lastEvent, setLastEvent] = useState<RealtimeEvent | null>(null);
+  const [socketReady, setSocketReady] = useState(false);
   const socketRef = useRef<Socket | null>(null);
   const onEventRef = useRef(onEvent);
   const seenEventKeysRef = useRef(new Set<string>());
@@ -79,14 +80,21 @@ export function useDashboardRealtime(onEvent?: (event: RealtimeEvent) => void) {
 
     socket.on("dashboard:event", handleMessage);
     socket.on("reconnect_attempt", () => setReconnectState("reconnecting"));
-    socket.on("connect", () => setReconnectState(null));
+    socket.on("connect", () => {
+      setReconnectState(null);
+      setSocketReady(true);
+    });
     socket.on("connect_error", () => setReconnectState("offline"));
-    socket.on("disconnect", () => setReconnectState("offline"));
+    socket.on("disconnect", () => {
+      setReconnectState("offline");
+      setSocketReady(false);
+    });
 
     return () => {
       socket.off("dashboard:event", handleMessage);
       socket.disconnect();
       socketRef.current = null;
+      setSocketReady(false);
     };
   }, [commitEvent]);
 
@@ -107,13 +115,19 @@ export function useDashboardRealtime(onEvent?: (event: RealtimeEvent) => void) {
     socketRef.current?.emit("webrtc:join-room", { roomId });
   }, []);
 
+  const endVideoRoom = useCallback((roomId: string) => {
+    socketRef.current?.emit("webrtc:session-ended", { roomId });
+  }, []);
+
   const getSocket = useCallback(() => socketRef.current, []);
 
   return {
     connectionState: reconnectState || connectionState,
+    socketReady,
     lastEvent,
     publish,
     joinVideoRoom,
+    endVideoRoom,
     getSocket,
     simulateReconnect,
   };

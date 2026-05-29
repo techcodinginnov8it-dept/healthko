@@ -102,11 +102,11 @@
       "gender": "Male",
       "password": "$2a$10$I/pih9w4CwMKR5eF0Cc/juk3NrO4C682Y0CMBq055H7Vphdj1pxS2",
       "hipaaConsent": true,
-      "emailVerified": false,
+      "emailVerified": true,
       "id": "pat-vk5ujoe5q",
       "isActive": true,
       "createdAt": "2026-05-22T16:32:22.141Z",
-      "updatedAt": "2026-05-22T16:32:22.141Z"
+      "updatedAt": "2026-05-28T13:40:03.533Z"
     },
     {
       "firstName": "Larajean",
@@ -175,7 +175,7 @@
       "reviewCount": 142,
       "availability": "Mon - Fri, 9AM - 6PM",
       "consultFee": 150,
-      "bio": "I am an Ivy League-educated cardiologist with over 15 years of clinical experience specializing in non-invasive cardiology and preventive health.",
+      "bio": "I am an Ivy League-educated cardiologist with over 12 years of clinical experience specializing in non-invasive cardiology and preventive health.",
       "image": null,
       "languages": [
         "English",
@@ -185,9 +185,9 @@
       "isFeatured": true,
       "isVerified": true,
       "createdAt": "2026-05-20T20:58:55.527Z",
-      "updatedAt": "2026-05-21T21:01:49.245Z",
+      "updatedAt": "2026-05-29T15:36:01.669Z",
       "licenseNumber": "C123456",
-      "licenseState": null,
+      "licenseState": "LA",
       "yearsExp": 12
     },
     {
@@ -293,14 +293,14 @@
       "id": "con-di9utwqs9",
       "patientId": "pat-403srhr9k",
       "doctorId": "doc-sarah-jenkins-123",
-      "scheduledAt": "2026-05-29T07:00:00.000Z",
+      "scheduledAt": "2026-06-02T04:00:00.000Z",
       "status": "CONFIRMED",
       "reason": "For prescription purposes",
       "notes": null,
       "prescription": null,
       "duration": 30,
       "createdAt": "2026-05-25T18:14:42.992Z",
-      "updatedAt": "2026-05-25T19:16:59.210Z"
+      "updatedAt": "2026-05-28T14:50:04.805Z"
     },
     {
       "id": "con-r138c07z9",
@@ -379,6 +379,45 @@
       "duration": 30,
       "createdAt": "2026-05-25T19:23:34.691Z",
       "updatedAt": "2026-05-25T19:24:16.528Z"
+    },
+    {
+      "id": "con-do7aimcyb",
+      "patientId": "pat-jnpd6vok9",
+      "doctorId": "doc-sarah-jenkins-123",
+      "scheduledAt": "2026-06-01T02:09:00.000Z",
+      "status": "CONFIRMED",
+      "reason": "Follow-up Consultation",
+      "notes": null,
+      "prescription": null,
+      "duration": 30,
+      "createdAt": "2026-05-29T13:17:55.410Z",
+      "updatedAt": "2026-05-29T13:17:55.410Z"
+    },
+    {
+      "id": "con-qbmf4s478",
+      "patientId": "pat-jnpd6vok9",
+      "doctorId": "doc-sarah-jenkins-123",
+      "scheduledAt": "2026-06-01T05:00:00.000Z",
+      "status": "CONFIRMED",
+      "reason": "Follow-up Consultation",
+      "notes": "Follow-up requested by doctor. Awaiting patient confirmation.\nPatient requested rescheduling on 2026-05-29T15:37:37.737Z. Doctor review required.\nPatient requested rescheduling on 2026-05-29T15:37:47.200Z. Doctor review required.\nPatient requested rescheduling on 2026-05-29T15:38:16.451Z. Doctor review required.\nPatient confirmed this follow-up appointment.",
+      "prescription": null,
+      "duration": 30,
+      "createdAt": "2026-05-29T15:37:04.711Z",
+      "updatedAt": "2026-05-29T15:43:59.752Z"
+    },
+    {
+      "id": "con-x8ahr414h",
+      "patientId": "pat-jnpd6vok9",
+      "doctorId": "doc-sarah-jenkins-123",
+      "scheduledAt": "2026-06-02T01:00:00.000Z",
+      "status": "PENDING",
+      "reason": "test",
+      "notes": "Follow-up requested by doctor. Awaiting patient confirmation.\nPatient requested rescheduling on 2026-05-29T15:46:22.680Z. Doctor review required.",
+      "prescription": null,
+      "duration": 30,
+      "createdAt": "2026-05-29T15:45:41.502Z",
+      "updatedAt": "2026-05-29T15:46:22.682Z"
     }
   ],
   "emailOtps": [
@@ -552,18 +591,81 @@
       "expiresAt": "2026-05-25T18:20:42.881Z",
       "used": true,
       "createdAt": "2026-05-25T18:10:42.882Z"
+    },
+    {
+      "id": "otp-rdbudeukz",
+      "email": "jonasv.innov8it@gmail.com",
+      "otp": "123456",
+      "purpose": "login_verify",
+      "expiresAt": "2026-05-28T13:48:50.426Z",
+      "used": true,
+      "createdAt": "2026-05-28T13:38:50.427Z"
+    },
+    {
+      "id": "otp-1970qlk9k",
+      "email": "thisisatestemail102294@gmail.com",
+      "otp": "123456",
+      "purpose": "signup_verify",
+      "expiresAt": "2026-05-28T13:50:00.621Z",
+      "used": true,
+      "createdAt": "2026-05-28T13:40:00.622Z"
+    },
+    {
+      "id": "otp-36fm5p7q6",
+      "email": "jonasv.innov8it@gmail.com",
+      "otp": "123456",
+      "purpose": "login_verify",
+      "expiresAt": "2026-05-28T15:30:02.705Z",
+      "used": true,
+      "createdAt": "2026-05-28T15:20:02.706Z"
+    },
+    {
+      "id": "otp-onls6zp94",
+      "email": "jonasv.innov8it@gmail.com",
+      "otp": "123456",
+      "purpose": "login_verify",
+      "expiresAt": "2026-05-28T17:52:44.019Z",
+      "used": true,
+      "createdAt": "2026-05-28T17:42:44.020Z"
+    },
+    {
+      "id": "otp-2hx803j7s",
+      "email": "jonasv.innov8it@gmail.com",
+      "otp": "123456",
+      "purpose": "login_verify",
+      "expiresAt": "2026-05-28T18:09:07.023Z",
+      "used": true,
+      "createdAt": "2026-05-28T17:59:07.024Z"
+    },
+    {
+      "id": "otp-cl7ds35du",
+      "email": "jonasv.innov8it@gmail.com",
+      "otp": "123456",
+      "purpose": "login_verify",
+      "expiresAt": "2026-05-28T20:45:59.112Z",
+      "used": true,
+      "createdAt": "2026-05-28T20:35:59.113Z"
+    },
+    {
+      "id": "otp-bfi8d7ucb",
+      "email": "jane.lesh@healthko.com",
+      "otp": "123456",
+      "purpose": "login_verify",
+      "expiresAt": "2026-05-29T10:44:47.375Z",
+      "used": true,
+      "createdAt": "2026-05-29T10:34:47.376Z"
     }
   ],
   "videoSessions": [
     {
       "id": "vid-uy27vu16y",
       "consultationId": "con-dv0u2tc16",
-      "status": "STARTED",
-      "roomId": "healthko-con-dv0u2tc16-0d0a34eb9ca11280",
-      "startedAt": "2026-05-22T15:57:50.470Z",
-      "endedAt": "2026-05-22T12:11:18.479Z",
+      "status": "ENDED",
+      "roomId": "healthko-con-dv0u2tc16-e9092a0233575e40",
+      "startedAt": "2026-05-29T12:57:06.451Z",
+      "endedAt": "2026-05-29T12:57:35.878Z",
       "createdAt": "2026-05-21T18:38:29.389Z",
-      "updatedAt": "2026-05-22T15:57:50.470Z"
+      "updatedAt": "2026-05-29T12:57:35.878Z"
     },
     {
       "id": "vid-j5yaoumhu",
@@ -594,6 +696,16 @@
       "endedAt": null,
       "createdAt": "2026-05-25T20:55:16.702Z",
       "updatedAt": "2026-05-25T20:55:16.702Z"
+    },
+    {
+      "id": "vid-bakzfib6e",
+      "consultationId": "con-di9utwqs9",
+      "status": "ENDED",
+      "roomId": "healthko-con-di9utwqs9-bb5b6e807dc6f657",
+      "startedAt": "2026-05-29T13:04:08.449Z",
+      "endedAt": "2026-05-29T13:14:59.975Z",
+      "createdAt": "2026-05-28T14:55:43.913Z",
+      "updatedAt": "2026-05-29T13:14:59.975Z"
     }
   ]
 }

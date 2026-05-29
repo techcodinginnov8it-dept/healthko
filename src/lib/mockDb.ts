@@ -358,10 +358,12 @@ export const mockDb = {
           createdAt: new Date(c.createdAt),
           doctor: doctor
             ? {
+                id: doctor.id,
                 name: doctor.name,
                 specialty: doctor.specialty,
               }
             : {
+                id: c.doctorId,
                 name: "Unknown Doctor",
                 specialty: "General Medicine",
               },

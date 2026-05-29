@@ -45,6 +45,7 @@ export const getPatientDashboardData = cache(async () => {
             createdAt: true,
             doctor: {
               select: {
+                id: true,
                 name: true,
                 specialty: true,
               },

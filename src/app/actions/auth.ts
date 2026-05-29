@@ -190,6 +190,7 @@ async function issueEmailOtp({
       purpose,
       firstName,
     });
+    return { delivery: "email" as const };
   } catch (error: any) {
     if (
       !process.env.NEXT_PUBLIC_SUPABASE_URL ||
@@ -197,10 +198,18 @@ async function issueEmailOtp({
     ) {
       console.warn(`[Mock OTP Bypass] Supabase not configured. Use OTP code '123456' for ${email}`);
       mockDb.createEmailOtp(email, "123456", purpose, new Date(Date.now() + 10 * 60 * 1000));
-      return;
+      return { delivery: "mock" as const };
     }
     throw error;
   }
+}
+
+function withOtpDeliveryHint(message: string, delivery: "email" | "mock") {
+  if (delivery === "mock") {
+    return `${message} Local development code: 123456.`;
+  }
+
+  return message;
 }
 
 
@@ -313,7 +322,7 @@ export async function requestPatientSignupOtp(data: PatientSignupPayload): Promi
 
   // Step 2: Attempt to send the verification OTP
   try {
-    await issueEmailOtp({
+    const otpDelivery = await issueEmailOtp({
       email: createdPatient.email,
       purpose: "signup_verify",
       firstName: createdPatient.firstName,
@@ -324,7 +333,10 @@ export async function requestPatientSignupOtp(data: PatientSignupPayload): Promi
       requiresOtp: true,
       purpose: "signup_verify",
       email: createdPatient.email,
-      message: "We sent a 6-digit code to your email to finish setting up your patient account.",
+      message: withOtpDeliveryHint(
+        "We sent a 6-digit code to your email to finish setting up your patient account.",
+        otpDelivery.delivery,
+      ),
     };
   } catch (otpError: any) {
     console.error("Supabase OTP send failed. Rolling back patient record creation...", otpError);
@@ -499,20 +511,22 @@ export async function requestPatientLoginOtp(data: PatientLoginPayload): Promise
   try {
     const purpose: OtpPurpose = validatedPatient.emailVerified ? "login_verify" : "signup_verify";
 
-    await issueEmailOtp({
+    const otpDelivery = await issueEmailOtp({
       email: validatedPatient.email,
       purpose,
       firstName: validatedPatient.firstName,
     });
+
+    const message = validatedPatient.emailVerified
+      ? "We sent a 6-digit code to your email to confirm this sign-in."
+      : "Your account still needs email verification. We sent you a fresh 6-digit code.";
 
     return {
       success: true,
       requiresOtp: true,
       purpose,
       email: validatedPatient.email,
-      message: validatedPatient.emailVerified
-        ? "We sent a 6-digit code to your email to confirm this sign-in."
-        : "Your account still needs email verification. We sent you a fresh 6-digit code.",
+      message: withOtpDeliveryHint(message, otpDelivery.delivery),
     };
   } catch (otpError: any) {
     console.error("Supabase login OTP send failed:", otpError);

@@ -92,6 +92,7 @@ export function DashboardShell<TModule extends ModuleId>({
   subtitle,
   profile,
   connectionState,
+  notificationBell,
   collapsed,
   onToggleCollapsed,
   onNavigate,
@@ -109,6 +110,7 @@ export function DashboardShell<TModule extends ModuleId>({
     meta?: string;
   };
   connectionState: "connected" | "reconnecting" | "offline";
+  notificationBell?: ReactNode;
   collapsed: boolean;
   onToggleCollapsed: () => void;
   onNavigate: (module: TModule) => void;
@@ -122,7 +124,6 @@ export function DashboardShell<TModule extends ModuleId>({
   const navIdle = isDoctor
     ? "text-slate-400 hover:bg-slate-900 hover:text-white"
     : "text-slate-500 hover:bg-slate-100 hover:text-slate-950";
-  const overviewModule = navItems.find((item) => item.id === "overview")?.id;
 
   return (
     <div className={`min-h-screen ${shellBg} font-sans lg:flex`}>
@@ -173,11 +174,6 @@ export function DashboardShell<TModule extends ModuleId>({
                     <NavIcon id={item.id} />
                   </span>
                   {!collapsed && <span className="min-w-0 flex-1 leading-tight">{item.label}</span>}
-                  {!collapsed && item.badge ? (
-                    <span className="rounded-full bg-brand-red px-2 py-0.5 text-[10px] font-black text-white">
-                      {item.badge}
-                    </span>
-                  ) : null}
                 </button>
               );
             })}
@@ -209,6 +205,7 @@ export function DashboardShell<TModule extends ModuleId>({
               <h1 className="mt-1 font-display text-2xl font-black tracking-tight">{title}</h1>
             </div>
             <div className="flex items-center gap-2">
+              {notificationBell}
               <span
                 className={`rounded-full border px-3 py-1 text-[10px] font-black uppercase tracking-widest ${
                   connectionState === "connected"

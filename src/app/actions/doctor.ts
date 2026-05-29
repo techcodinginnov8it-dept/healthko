@@ -425,8 +425,11 @@ export async function scheduleFollowUpAppointment(data: ScheduleFollowUpPayload)
         doctorId: session.userId,
         scheduledAt,
         reason,
-        status: "CONFIRMED",
+        status: "PENDING",
         duration: DEFAULT_DURATION_MINUTES,
+      });
+      mockDb.updateConsultation(consultation.id, {
+        notes: "Follow-up requested by doctor. Awaiting patient confirmation.",
       });
 
       revalidatePath("/doctor/dashboard");
@@ -461,7 +464,8 @@ export async function scheduleFollowUpAppointment(data: ScheduleFollowUpPayload)
         doctorId: session.userId,
         scheduledAt,
         reason,
-        status: "CONFIRMED",
+        status: "PENDING",
+        notes: "Follow-up requested by doctor. Awaiting patient confirmation.",
         duration: DEFAULT_DURATION_MINUTES,
       },
     });
@@ -502,8 +506,11 @@ export async function scheduleFollowUpAppointment(data: ScheduleFollowUpPayload)
         doctorId: session.userId,
         scheduledAt,
         reason,
-        status: "CONFIRMED",
+        status: "PENDING",
         duration: DEFAULT_DURATION_MINUTES,
+      });
+      mockDb.updateConsultation(consultation.id, {
+        notes: "Follow-up requested by doctor. Awaiting patient confirmation.",
       });
 
       revalidatePath("/doctor/dashboard");
