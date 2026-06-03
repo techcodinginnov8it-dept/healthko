@@ -1,13 +1,109 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { prisma } from "@/lib/prisma";
+import { isPrismaConfigured, prisma } from "@/lib/prisma";
 import { requireDoctorSession } from "@/lib/auth/doctor-session";
 import { mockDb } from "@/lib/mockDb";
+import {
+  DEFAULT_DURATION_MINUTES,
+  getFullyBookedMessage,
+  getOutsideAvailabilityMessage,
+  getScheduleConflict,
+  isWithinDoctorAvailability,
+} from "@/lib/scheduling";
+
+async function validatePrismaDoctorSchedule({
+  doctorId,
+  scheduledAt,
+  durationMinutes = DEFAULT_DURATION_MINUTES,
+  excludeAppointmentId,
+}: {
+  doctorId: string;
+  scheduledAt: Date;
+  durationMinutes?: number;
+  excludeAppointmentId?: string;
+}) {
+  const doctor = await prisma.doctor.findUnique({
+    where: { id: doctorId },
+    select: { availability: true },
+  });
+
+  if (!doctor) {
+    return "Doctor schedule was not found.";
+  }
+
+  if (!isWithinDoctorAvailability(scheduledAt, durationMinutes, doctor)) {
+    return getOutsideAvailabilityMessage(doctor.availability);
+  }
+
+  const confirmedAppointments = await prisma.consultation.findMany({
+    where: { doctorId, status: "CONFIRMED" },
+    select: { id: true, scheduledAt: true, duration: true, status: true },
+  });
+
+  const conflict = getScheduleConflict(confirmedAppointments, scheduledAt, durationMinutes, excludeAppointmentId);
+  return conflict ? getFullyBookedMessage() : "";
+}
+
+function validateMockDoctorSchedule({
+  doctorId,
+  scheduledAt,
+  durationMinutes = DEFAULT_DURATION_MINUTES,
+  excludeAppointmentId,
+}: {
+  doctorId: string;
+  scheduledAt: Date;
+  durationMinutes?: number;
+  excludeAppointmentId?: string;
+}) {
+  const doctor = mockDb.findDoctorById(doctorId);
+
+  if (!doctor) {
+    return "Doctor schedule was not found.";
+  }
+
+  if (!isWithinDoctorAvailability(scheduledAt, durationMinutes, doctor)) {
+    return getOutsideAvailabilityMessage(doctor.availability);
+  }
+
+  const conflict = getScheduleConflict(
+    mockDb.getBookingsForDoctor(doctorId),
+    scheduledAt,
+    durationMinutes,
+    excludeAppointmentId
+  );
+
+  return conflict ? getFullyBookedMessage() : "";
+}
 
 export async function acceptAppointment(consultationId: string) {
   try {
     const session = await requireDoctorSession();
+
+    if (!isPrismaConfigured()) {
+      const existing = mockDb.getBookingsForDoctor(session.userId).find((c) => c.id === consultationId);
+
+      if (!existing) {
+        return { success: false, error: "Consultation not found or unauthorized access." };
+      }
+
+      const scheduleError = validateMockDoctorSchedule({
+        doctorId: session.userId,
+        scheduledAt: new Date(existing.scheduledAt),
+        durationMinutes: existing.duration || DEFAULT_DURATION_MINUTES,
+        excludeAppointmentId: consultationId,
+      });
+
+      if (scheduleError) {
+        return { success: false, error: scheduleError };
+      }
+
+      const updated = mockDb.updateConsultation(consultationId, { status: "CONFIRMED" });
+
+      revalidatePath("/doctor/dashboard");
+      revalidatePath("/patient/dashboard");
+      return { success: true, consultation: updated };
+    }
 
     // Verify ownership in Prisma
     const consultation = await prisma.consultation.findUnique({
@@ -16,6 +112,17 @@ export async function acceptAppointment(consultationId: string) {
 
     if (!consultation || consultation.doctorId !== session.userId) {
       return { success: false, error: "Consultation not found or unauthorized access." };
+    }
+
+    const scheduleError = await validatePrismaDoctorSchedule({
+      doctorId: session.userId,
+      scheduledAt: consultation.scheduledAt,
+      durationMinutes: consultation.duration || DEFAULT_DURATION_MINUTES,
+      excludeAppointmentId: consultationId,
+    });
+
+    if (scheduleError) {
+      return { success: false, error: scheduleError };
     }
 
     const updated = await prisma.consultation.update({
@@ -34,6 +141,17 @@ export async function acceptAppointment(consultationId: string) {
 
       if (!existing) {
         return { success: false, error: "Consultation not found or unauthorized access." };
+      }
+
+      const scheduleError = validateMockDoctorSchedule({
+        doctorId: session.userId,
+        scheduledAt: new Date(existing.scheduledAt),
+        durationMinutes: existing.duration || DEFAULT_DURATION_MINUTES,
+        excludeAppointmentId: consultationId,
+      });
+
+      if (scheduleError) {
+        return { success: false, error: scheduleError };
       }
 
       const updated = mockDb.updateConsultation(consultationId, { status: "CONFIRMED" });
@@ -101,6 +219,12 @@ type CompleteConsultationPayload = {
 type RescheduleAppointmentPayload = {
   consultationId: string;
   scheduledAt: string;
+};
+
+type ScheduleFollowUpPayload = {
+  patientId: string;
+  scheduledAt: string;
+  reason: string;
 };
 
 type ReferAppointmentPayload = {
@@ -173,12 +297,51 @@ export async function rescheduleAppointment(data: RescheduleAppointmentPayload) 
       return { success: false, error: "Choose a valid future consultation time." };
     }
 
+    if (!isPrismaConfigured()) {
+      const existing = mockDb.getBookingsForDoctor(session.userId).find((c) => c.id === data.consultationId);
+
+      if (!existing) {
+        return { success: false, error: "Consultation not found or invalid appointment time." };
+      }
+
+      const scheduleError = validateMockDoctorSchedule({
+        doctorId: session.userId,
+        scheduledAt,
+        durationMinutes: existing.duration || DEFAULT_DURATION_MINUTES,
+        excludeAppointmentId: data.consultationId,
+      });
+
+      if (scheduleError) {
+        return { success: false, error: scheduleError };
+      }
+
+      const updated = mockDb.updateConsultation(data.consultationId, {
+        scheduledAt: scheduledAt.toISOString(),
+        status: existing.status === "PENDING" ? "CONFIRMED" : existing.status,
+      });
+
+      revalidatePath("/doctor/dashboard");
+      revalidatePath("/patient/dashboard");
+      return { success: true, consultation: updated };
+    }
+
     const consultation = await prisma.consultation.findUnique({
       where: { id: data.consultationId },
     });
 
     if (!consultation || consultation.doctorId !== session.userId) {
       return { success: false, error: "Consultation not found or unauthorized access." };
+    }
+
+    const scheduleError = await validatePrismaDoctorSchedule({
+      doctorId: session.userId,
+      scheduledAt,
+      durationMinutes: consultation.duration || DEFAULT_DURATION_MINUTES,
+      excludeAppointmentId: data.consultationId,
+    });
+
+    if (scheduleError) {
+      return { success: false, error: scheduleError };
     }
 
     const updated = await prisma.consultation.update({
@@ -203,6 +366,17 @@ export async function rescheduleAppointment(data: RescheduleAppointmentPayload) 
         return { success: false, error: "Consultation not found or invalid appointment time." };
       }
 
+      const scheduleError = validateMockDoctorSchedule({
+        doctorId: session.userId,
+        scheduledAt,
+        durationMinutes: existing.duration || DEFAULT_DURATION_MINUTES,
+        excludeAppointmentId: data.consultationId,
+      });
+
+      if (scheduleError) {
+        return { success: false, error: scheduleError };
+      }
+
       const updated = mockDb.updateConsultation(data.consultationId, {
         scheduledAt: scheduledAt.toISOString(),
         status: existing.status === "PENDING" ? "CONFIRMED" : existing.status,
@@ -214,6 +388,137 @@ export async function rescheduleAppointment(data: RescheduleAppointmentPayload) 
     } catch (mockErr) {
       console.error("Failed to reschedule appointment in mock fallback:", mockErr);
       return { success: false, error: "System failed to reschedule consultation." };
+    }
+  }
+}
+
+export async function scheduleFollowUpAppointment(data: ScheduleFollowUpPayload) {
+  try {
+    const session = await requireDoctorSession();
+    const scheduledAt = new Date(data.scheduledAt);
+    const reason = data.reason.trim();
+
+    if (!data.patientId || !reason || Number.isNaN(scheduledAt.getTime()) || scheduledAt < new Date()) {
+      return { success: false, error: "Choose a patient, future time, and follow-up reason." };
+    }
+
+    if (!isPrismaConfigured()) {
+      const patientHistory = mockDb
+        .getBookingsForDoctor(session.userId)
+        .some((booking) => booking.patient?.id === data.patientId);
+
+      if (!patientHistory) {
+        return { success: false, error: "Follow-up scheduling is only available for existing patients." };
+      }
+
+      const scheduleError = validateMockDoctorSchedule({
+        doctorId: session.userId,
+        scheduledAt,
+      });
+
+      if (scheduleError) {
+        return { success: false, error: scheduleError };
+      }
+
+      const consultation = mockDb.createConsultation({
+        patientId: data.patientId,
+        doctorId: session.userId,
+        scheduledAt,
+        reason,
+        status: "PENDING",
+        duration: DEFAULT_DURATION_MINUTES,
+      });
+      mockDb.updateConsultation(consultation.id, {
+        notes: "Follow-up requested by doctor. Awaiting patient confirmation.",
+      });
+
+      revalidatePath("/doctor/dashboard");
+      revalidatePath("/patient/dashboard");
+      return { success: true, consultation };
+    }
+
+    const patientHistory = await prisma.consultation.findFirst({
+      where: {
+        patientId: data.patientId,
+        doctorId: session.userId,
+      },
+      select: { id: true },
+    });
+
+    if (!patientHistory) {
+      return { success: false, error: "Follow-up scheduling is only available for existing patients." };
+    }
+
+    const scheduleError = await validatePrismaDoctorSchedule({
+      doctorId: session.userId,
+      scheduledAt,
+    });
+
+    if (scheduleError) {
+      return { success: false, error: scheduleError };
+    }
+
+    const consultation = await prisma.consultation.create({
+      data: {
+        patientId: data.patientId,
+        doctorId: session.userId,
+        scheduledAt,
+        reason,
+        status: "PENDING",
+        notes: "Follow-up requested by doctor. Awaiting patient confirmation.",
+        duration: DEFAULT_DURATION_MINUTES,
+      },
+    });
+
+    revalidatePath("/doctor/dashboard");
+    revalidatePath("/patient/dashboard");
+    return { success: true, consultation };
+  } catch (error: unknown) {
+    console.warn("Prisma scheduleFollowUpAppointment failed, falling back to mock JSON database:", error);
+    try {
+      const session = await requireDoctorSession();
+      const scheduledAt = new Date(data.scheduledAt);
+      const reason = data.reason.trim();
+
+      if (!data.patientId || !reason || Number.isNaN(scheduledAt.getTime())) {
+        return { success: false, error: "Choose a patient, future time, and follow-up reason." };
+      }
+
+      const patientHistory = mockDb
+        .getBookingsForDoctor(session.userId)
+        .some((booking) => booking.patient?.id === data.patientId);
+
+      if (!patientHistory) {
+        return { success: false, error: "Follow-up scheduling is only available for existing patients." };
+      }
+
+      const scheduleError = validateMockDoctorSchedule({
+        doctorId: session.userId,
+        scheduledAt,
+      });
+
+      if (scheduleError) {
+        return { success: false, error: scheduleError };
+      }
+
+      const consultation = mockDb.createConsultation({
+        patientId: data.patientId,
+        doctorId: session.userId,
+        scheduledAt,
+        reason,
+        status: "PENDING",
+        duration: DEFAULT_DURATION_MINUTES,
+      });
+      mockDb.updateConsultation(consultation.id, {
+        notes: "Follow-up requested by doctor. Awaiting patient confirmation.",
+      });
+
+      revalidatePath("/doctor/dashboard");
+      revalidatePath("/patient/dashboard");
+      return { success: true, consultation };
+    } catch (mockErr) {
+      console.error("Failed to schedule follow-up in mock fallback:", mockErr);
+      return { success: false, error: "System failed to schedule follow-up consultation." };
     }
   }
 }

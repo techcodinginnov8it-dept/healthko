@@ -2,7 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import type { ReactNode } from "react";
-import { useState, useTransition } from "react";
+import { useCallback, useMemo, useState, useTransition } from "react";
 import {
   updateDoctorPassword,
   updateDoctorProfile,
@@ -58,11 +58,40 @@ type PasswordForm = {
   confirmPassword: string;
 };
 
+type SettingsSection<TId extends string> = {
+  id: TId;
+  label: string;
+  description: string;
+};
+
 const blankPasswordForm: PasswordForm = {
   currentPassword: "",
   newPassword: "",
   confirmPassword: "",
 };
+
+const patientSections = [
+  { id: "profile", label: "Profile Management", description: "Identity, contact, address, and ZIP code" },
+  { id: "medical", label: "Medical Profile", description: "Health profile details and emergency contacts" },
+  { id: "security", label: "Account Security", description: "Password, 2FA, devices, and recovery" },
+  { id: "notifications", label: "Notifications", description: "Appointment, consultation, email, and SMS preferences" },
+  { id: "privacy", label: "Privacy", description: "Teleconsultation and data privacy consent" },
+  { id: "support", label: "Support & Help", description: "Help channels and account assistance" },
+] as const satisfies readonly SettingsSection<string>[];
+
+const doctorSections = [
+  { id: "professional", label: "Professional Profile", description: "Credentials and patient-facing profile" },
+  { id: "schedule", label: "Schedule & Availability", description: "Working hours and consultation duration" },
+  { id: "consultation", label: "Consultation Settings", description: "Device and admission preferences" },
+  { id: "security", label: "Account Security", description: "Password management" },
+  { id: "notifications", label: "Notification Settings", description: "Appointment and communication alerts" },
+  { id: "prescriptions", label: "Prescription Settings", description: "Signature and templates" },
+  { id: "privacy", label: "Privacy & Consent", description: "Data access and telehealth compliance" },
+  { id: "support", label: "Support & Help", description: "Help channels and account assistance" },
+] as const satisfies readonly SettingsSection<string>[];
+
+type PatientSectionId = (typeof patientSections)[number]["id"];
+type DoctorSectionId = (typeof doctorSections)[number]["id"];
 
 function Field({
   label,
@@ -139,19 +168,22 @@ function SettingsCard({
   );
 }
 
-function FormStatus({ error, success }: { error: string; success: string }) {
-  if (!error && !success) {
-    return null;
-  }
-
+function SettingsToastStack({ toasts }: { toasts: { id: string; tone: "success" | "error"; message: string }[] }) {
   return (
-    <div
-      className={`rounded-lg border p-3 text-xs font-bold ${
-        error ? "border-brand-red/20 bg-brand-red/10 text-brand-red" : "border-emerald-200 bg-emerald-50 text-emerald-700"
-      }`}
-      role="status"
-    >
-      {error || success}
+    <div className="pointer-events-none fixed right-5 top-5 z-[90] flex w-[min(24rem,calc(100vw-2.5rem))] flex-col gap-3">
+      {toasts.map((toast) => (
+        <div
+          key={toast.id}
+          className={`rounded-xl border px-4 py-3 text-sm font-bold shadow-2xl backdrop-blur ${
+            toast.tone === "success"
+              ? "border-emerald-200 bg-emerald-50/95 text-emerald-700"
+              : "border-red-200 bg-red-50/95 text-red-700"
+          }`}
+          role="status"
+        >
+          {toast.message}
+        </div>
+      ))}
     </div>
   );
 }
@@ -163,7 +195,8 @@ function InitialsAvatar({ label, image }: { label: string; image?: string | null
         <div
           className="h-16 w-16 rounded-xl bg-cover bg-center"
           style={{ backgroundImage: `url(${image})` }}
-          aria-hidden="true"
+          aria-label={`${label} profile image`}
+          role="img"
         />
       ) : (
         <div className="flex h-16 w-16 items-center justify-center rounded-xl bg-brand-teal/10 text-lg font-black text-brand-teal">
@@ -178,61 +211,123 @@ function InitialsAvatar({ label, image }: { label: string; image?: string | null
   );
 }
 
-function SharedAccountControls({
-  role,
-  verified,
-  createdAt,
+function ToggleRow({
+  label,
+  description,
+  checked = true,
 }: {
-  role: "doctor" | "patient";
-  verified: boolean;
-  createdAt: Date | string;
+  label: string;
+  description: string;
+  checked?: boolean;
 }) {
   return (
-    <div className="grid gap-4 lg:grid-cols-3">
-      <SettingsCard title="Notification Preferences" body="Connected account alerts stay contextual to appointments and consultations.">
-        <div className="space-y-3 text-sm font-semibold text-slate-600">
-          <label className="flex items-center justify-between gap-4 rounded-lg border border-slate-200 px-3 py-2">
-            Email alerts
-            <input type="checkbox" checked readOnly className="h-4 w-4 accent-brand-teal" />
-          </label>
-          <label className="flex items-center justify-between gap-4 rounded-lg border border-slate-200 px-3 py-2">
-            Care updates
-            <input type="checkbox" checked readOnly className="h-4 w-4 accent-brand-teal" />
-          </label>
-          <p className="text-xs text-slate-500">Preference persistence is not yet modeled in the current schema.</p>
-        </div>
-      </SettingsCard>
+    <label className="flex items-center justify-between gap-4 rounded-lg border border-slate-200 bg-white px-3 py-3">
+      <span>
+        <span className="block text-sm font-black text-slate-800">{label}</span>
+        <span className="mt-1 block text-xs font-semibold text-slate-500">{description}</span>
+      </span>
+      <input type="checkbox" checked={checked} readOnly className="h-4 w-4 shrink-0 accent-brand-teal" />
+    </label>
+  );
+}
 
-      <SettingsCard title="Security & Privacy" body="Role-based sessions use signed, HTTP-only cookies.">
-        <dl className="space-y-3 text-sm">
-          <div>
-            <dt className="font-black text-slate-500">Account status</dt>
-            <dd className="font-semibold text-slate-900">{verified ? "Verified" : "Verification pending"}</dd>
-          </div>
-          <div>
-            <dt className="font-black text-slate-500">Privacy mode</dt>
-            <dd className="font-semibold text-slate-900">HIPAA-aware care access</dd>
-          </div>
-          <div>
-            <dt className="font-black text-slate-500">Joined</dt>
-            <dd className="font-semibold text-slate-900">{formatDate(createdAt)}</dd>
-          </div>
-        </dl>
-      </SettingsCard>
-
-      <SettingsCard title="Sessions & Devices" body="Active browser sessions are managed through secure cookies.">
-        <div className="space-y-3 text-sm font-semibold text-slate-600">
-          <p>Current {role} session is active on this device.</p>
-          <p className="text-xs text-slate-500">Device inventory and remote revocation need a dedicated session table before they can be persisted.</p>
-        </div>
-      </SettingsCard>
+function ReadOnlyTile({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-lg border border-slate-200 bg-slate-50 p-4">
+      <p className="text-[10px] font-black uppercase tracking-wider text-slate-400">{label}</p>
+      <p className="mt-2 text-sm font-black text-slate-800">{value}</p>
     </div>
   );
 }
 
-function PasswordManagement({ role }: { role: "doctor" | "patient" }) {
+function PlaceholderTile({ title, body }: { title: string; body: string }) {
+  return (
+    <div className="rounded-lg border border-dashed border-slate-300 bg-slate-50 p-4">
+      <p className="text-sm font-black text-slate-800">{title}</p>
+      <p className="mt-1 text-xs font-semibold leading-relaxed text-slate-500">{body}</p>
+    </div>
+  );
+}
+
+function SettingsLayout<TId extends string>({
+  role,
+  sections,
+  activeSection,
+  onSectionChange,
+  title,
+  subtitle,
+  children,
+}: {
+  role: "doctor" | "patient";
+  sections: readonly SettingsSection<TId>[];
+  activeSection: TId;
+  onSectionChange: (section: TId) => void;
+  title: string;
+  subtitle: string;
+  children: ReactNode;
+}) {
+  const isDoctor = role === "doctor";
+
+  return (
+    <section className="grid min-h-[calc(100vh-9rem)] gap-5 xl:grid-cols-[320px_minmax(0,1fr)]">
+      <aside className={`rounded-xl border p-4 ${isDoctor ? "border-slate-850 bg-slate-900" : "border-slate-200 bg-white"}`}>
+        <p className="text-[10px] font-black uppercase tracking-[0.2em] text-brand-teal">Settings</p>
+        <h2 className={`mt-1 text-lg font-black ${isDoctor ? "text-white" : "text-slate-950"}`}>{title}</h2>
+        <p className={`mt-1 text-xs font-semibold ${isDoctor ? "text-slate-400" : "text-slate-500"}`}>{subtitle}</p>
+        <nav className="mt-5 space-y-2" aria-label={`${role} settings sections`}>
+          {sections.map((section) => {
+            const active = activeSection === section.id;
+
+            return (
+              <button
+                key={section.id}
+                type="button"
+                onClick={() => onSectionChange(section.id)}
+                className={`w-full rounded-lg border px-3 py-3 text-left transition ${
+                  active
+                    ? "border-brand-teal bg-brand-teal text-white"
+                    : isDoctor
+                      ? "border-slate-800 bg-slate-950 text-slate-300 hover:border-slate-700"
+                      : "border-slate-200 bg-slate-50 text-slate-700 hover:border-brand-teal/40"
+                }`}
+                aria-current={active ? "page" : undefined}
+              >
+                <span className="block text-sm font-black">{section.label}</span>
+                <span className={`mt-1 block text-[11px] font-semibold ${active ? "text-white/80" : isDoctor ? "text-slate-500" : "text-slate-500"}`}>
+                  {section.description}
+                </span>
+              </button>
+            );
+          })}
+        </nav>
+      </aside>
+      <div className="min-w-0 space-y-4">{children}</div>
+    </section>
+  );
+}
+
+function useSettingsToasts() {
+  const [toasts, setToasts] = useState<{ id: string; tone: "success" | "error"; message: string }[]>([]);
+
+  const showToast = useCallback((tone: "success" | "error", message: string) => {
+    const id = `settings-toast-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    setToasts((current) => [...current, { id, tone, message }]);
+    window.setTimeout(() => {
+      setToasts((current) => current.filter((toast) => toast.id !== id));
+    }, 5000);
+  }, []);
+
+  return { toasts, showToast };
+}
+
+function PasswordManagement({
+  role,
+  onToast,
+}: {
+  role: "doctor" | "patient";
+  onToast: (tone: "success" | "error", message: string) => void;
+}) {
   const [form, setForm] = useState<PasswordForm>(blankPasswordForm);
-  const [status, setStatus] = useState({ error: "", success: "" });
   const [isPending, startTransition] = useTransition();
 
   const setField = (field: keyof PasswordForm, value: string) => {
@@ -244,22 +339,19 @@ function PasswordManagement({ role }: { role: "doctor" | "patient" }) {
       <form
         onSubmit={(event) => {
           event.preventDefault();
-          setStatus({ error: "", success: "" });
           startTransition(async () => {
             const result = role === "doctor" ? await updateDoctorPassword(form) : await updatePatientPassword(form);
             if (!result.success) {
-              setStatus({ error: result.error || "Could not update password.", success: "" });
+              onToast("error", result.error || "Could not update password.");
               return;
             }
+
             setForm(blankPasswordForm);
-            setStatus({ error: "", success: "Password updated." });
+            onToast("success", "Password updated.");
           });
         }}
         className="grid gap-4 md:grid-cols-3"
       >
-        <div className="md:col-span-3">
-          <FormStatus error={status.error} success={status.success} />
-        </div>
         <Field label="Current password" type="password" value={form.currentPassword} onChange={(value) => setField("currentPassword", value)} required />
         <Field label="New password" type="password" value={form.newPassword} onChange={(value) => setField("newPassword", value)} required />
         <Field label="Confirm password" type="password" value={form.confirmPassword} onChange={(value) => setField("confirmPassword", value)} required />
@@ -271,8 +363,51 @@ function PasswordManagement({ role }: { role: "doctor" | "patient" }) {
   );
 }
 
-export function DoctorSettingsModule({ doctor }: { doctor: DoctorSettingsData }) {
+function AccountSecurityContent({
+  role,
+  verified,
+  createdAt,
+  onToast,
+}: {
+  role: "doctor" | "patient";
+  verified: boolean;
+  createdAt: Date | string;
+  onToast: (tone: "success" | "error", message: string) => void;
+}) {
+  return (
+    <div className="space-y-4">
+      <PasswordManagement role={role} onToast={onToast} />
+      <SettingsCard title="Security Overview" body="Role-based sessions use signed, HTTP-only cookies.">
+        <div className="grid gap-3 md:grid-cols-3">
+          <ReadOnlyTile label="Account Status" value={verified ? "Verified" : "Verification pending"} />
+          <ReadOnlyTile label="Joined" value={formatDate(createdAt)} />
+          <ReadOnlyTile label="Current Session" value="Active on this device" />
+        </div>
+      </SettingsCard>
+      {role === "patient" && (
+        <SettingsCard title="Two-Factor, Devices, Login Activity, and Recovery" body="These controls are represented for workflow planning and require dedicated persistence tables before they can be edited.">
+          <div className="grid gap-3 md:grid-cols-2">
+            <PlaceholderTile title="Two-Factor Authentication" body="Not yet stored in the active account schema." />
+            <PlaceholderTile title="Login Activity History" body="Security event history needs an account activity table." />
+            <PlaceholderTile title="Device Management" body="Remote device revocation needs session inventory storage." />
+            <PlaceholderTile title="Account Recovery Options" body="Recovery settings currently use the OTP and password reset workflows." />
+          </div>
+        </SettingsCard>
+      )}
+    </div>
+  );
+}
+
+export function DoctorSettingsModule({
+  doctor,
+  onProfileUpdated,
+}: {
+  doctor: DoctorSettingsData;
+  onProfileUpdated?: (availability: string) => void;
+}) {
   const router = useRouter();
+  const { toasts, showToast } = useSettingsToasts();
+  const [activeSection, setActiveSection] = useState<DoctorSectionId>("professional");
   const [form, setForm] = useState({
     name: doctor.name,
     email: doctor.email,
@@ -284,80 +419,175 @@ export function DoctorSettingsModule({ doctor }: { doctor: DoctorSettingsData })
     bio: doctor.bio || "",
     consultFee: doctor.consultFee?.toString() || "",
     yearsExp: doctor.yearsExp?.toString() || "",
+    duration: "30",
+    admitMode: "manual",
   });
-  const [status, setStatus] = useState({ error: "", success: "" });
   const [isPending, startTransition] = useTransition();
 
-  const setField = (field: keyof typeof form, value: string) => {
+  const setField = useCallback((field: keyof typeof form, value: string) => {
     setForm((current) => ({ ...current, [field]: value }));
-  };
+  }, []);
 
-  return (
-    <div className="space-y-6">
-      <SettingsCard title="Profile Management" body="Manage the professional identity patients see before and during care.">
-        <form
-          onSubmit={(event) => {
-            event.preventDefault();
-            setStatus({ error: "", success: "" });
-            startTransition(async () => {
-              const result = await updateDoctorProfile(form);
-              if (!result.success) {
-                setStatus({ error: result.error || "Could not update profile.", success: "" });
-                return;
-              }
-              setStatus({ error: "", success: "Profile updated." });
-              router.refresh();
-            });
-          }}
-          className="grid gap-4 md:grid-cols-2"
-        >
-          <div className="md:col-span-2">
-            <InitialsAvatar label={form.name} image={form.image} />
+  const saveDoctorProfile = useCallback((message: string) => {
+    startTransition(async () => {
+      const result = await updateDoctorProfile(form);
+      if (!result.success) {
+        showToast("error", result.error || "Could not update profile.");
+        return;
+      }
+
+      showToast("success", message);
+      onProfileUpdated?.(form.availability);
+      router.refresh();
+    });
+  }, [form, onProfileUpdated, router, showToast]);
+
+  const activeContent = useMemo(() => {
+    if (activeSection === "professional") {
+      return (
+        <SettingsCard title="Professional Profile" body="Manage the professional identity patients see before and during care.">
+          <form
+            onSubmit={(event) => {
+              event.preventDefault();
+              saveDoctorProfile("Professional profile updated.");
+            }}
+            className="grid gap-4 md:grid-cols-2"
+          >
+            <div className="md:col-span-2">
+              <InitialsAvatar label={form.name} image={form.image} />
+            </div>
+            <Field label="Profile picture URL" value={form.image} onChange={(value) => setField("image", value)} placeholder="https://..." />
+            <Field label="Full name" value={form.name} onChange={(value) => setField("name", value)} required />
+            <Field label="Medical specialty" value={form.specialty} onChange={(value) => setField("specialty", value)} required />
+            <Field label="License number" value={form.licenseNumber} onChange={(value) => setField("licenseNumber", value)} />
+            <Field label="License state" value={form.licenseState} onChange={(value) => setField("licenseState", value)} />
+            <Field label="Contact information" type="email" value={form.email} onChange={(value) => setField("email", value)} required />
+            <Field label="Consultation fee" type="number" value={form.consultFee} onChange={(value) => setField("consultFee", value)} />
+            <Field label="Years experience" type="number" value={form.yearsExp} onChange={(value) => setField("yearsExp", value)} />
+            <TextAreaField label="Professional bio" value={form.bio} onChange={(value) => setField("bio", value)} />
+            <button type="submit" disabled={isPending} className="rounded-lg bg-brand-teal px-4 py-3 text-sm font-black text-white disabled:bg-slate-300 md:col-span-2">
+              {isPending ? "Saving..." : "Save Professional Profile"}
+            </button>
+          </form>
+        </SettingsCard>
+      );
+    }
+
+    if (activeSection === "schedule") {
+      return (
+        <SettingsCard title="Schedule & Availability" body="Availability is synchronized with appointment suggestions and scheduling tools.">
+          <form
+            onSubmit={(event) => {
+              event.preventDefault();
+              saveDoctorProfile("Schedule and availability updated.");
+            }}
+            className="grid gap-4 md:grid-cols-2"
+          >
+            <Field label="Working hours" value={form.availability} onChange={(value) => setField("availability", value)} required />
+            <Field label="Consultation schedule" value={form.availability} onChange={(value) => setField("availability", value)} required />
+            <Field label="Consultation duration" type="number" value={form.duration} onChange={(value) => setField("duration", value)} />
+            <ReadOnlyTile label="Availability Status" value={doctor.isVerified ? "Verified doctor schedule" : "Pending verification"} />
+            <button type="submit" disabled={isPending} className="rounded-lg bg-brand-teal px-4 py-3 text-sm font-black text-white disabled:bg-slate-300 md:col-span-2">
+              {isPending ? "Saving..." : "Save Schedule"}
+            </button>
+          </form>
+        </SettingsCard>
+      );
+    }
+
+    if (activeSection === "consultation") {
+      return (
+        <SettingsCard title="Consultation Settings" body="Camera and microphone controls are used by the live consultation room.">
+          <div className="grid gap-3 md:grid-cols-2">
+            <PlaceholderTile title="Camera Selection" body="Managed inside the active live consultation room device selector." />
+            <PlaceholderTile title="Microphone Selection" body="Managed inside the active live consultation room device selector." />
+            <ToggleRow label="Manual Admit Patients" description="Current WebRTC flow lets the doctor start the room before patients join." checked={form.admitMode === "manual"} />
+            <ToggleRow label="Auto Admit Patients" description="Future workflow option once waiting-room admission policies are modeled." checked={false} />
           </div>
-          <div className="md:col-span-2">
-            <FormStatus error={status.error} success={status.success} />
+        </SettingsCard>
+      );
+    }
+
+    if (activeSection === "security") {
+      return <AccountSecurityContent role="doctor" verified={doctor.isVerified} createdAt={doctor.createdAt} onToast={showToast} />;
+    }
+
+    if (activeSection === "notifications") {
+      return (
+        <SettingsCard title="Notification Settings" body="These preferences connect to existing dashboard alerts and realtime notifications.">
+          <div className="grid gap-3 md:grid-cols-2">
+            <ToggleRow label="Appointment Updates" description="New requests, approvals, reschedules, and cancellations." />
+            <ToggleRow label="Consultation Reminders" description="Live room and follow-up reminders." />
+            <ToggleRow label="Communication Preferences" description="Messages and clinical workflow notifications." />
+            <ToggleRow label="Email Notifications" description="Email delivery is handled by account communication services." />
           </div>
-          <Field label="Profile photo URL" value={form.image} onChange={(value) => setField("image", value)} placeholder="https://..." />
-          <Field label="Full name" value={form.name} onChange={(value) => setField("name", value)} required />
-          <Field label="Email" type="email" value={form.email} onChange={(value) => setField("email", value)} required />
-          <Field label="Specialization" value={form.specialty} onChange={(value) => setField("specialty", value)} required />
-          <Field label="License number" value={form.licenseNumber} onChange={(value) => setField("licenseNumber", value)} />
-          <Field label="License state" value={form.licenseState} onChange={(value) => setField("licenseState", value)} />
-          <Field label="Consultation schedule" value={form.availability} onChange={(value) => setField("availability", value)} required />
-          <Field label="Consult fee" type="number" value={form.consultFee} onChange={(value) => setField("consultFee", value)} />
-          <Field label="Years experience" type="number" value={form.yearsExp} onChange={(value) => setField("yearsExp", value)} />
-          <Field label="Availability status" value={form.availability} onChange={(value) => setField("availability", value)} required />
-          <TextAreaField label="Professional bio" value={form.bio} onChange={(value) => setField("bio", value)} />
-          <button type="submit" disabled={isPending} className="rounded-lg bg-brand-teal px-4 py-3 text-sm font-black text-white disabled:bg-slate-300 md:col-span-2">
-            {isPending ? "Saving..." : "Save Professional Profile"}
-          </button>
-        </form>
-      </SettingsCard>
+        </SettingsCard>
+      );
+    }
 
-      <PasswordManagement role="doctor" />
-      <SharedAccountControls role="doctor" verified={doctor.isVerified} createdAt={doctor.createdAt} />
+    if (activeSection === "prescriptions") {
+      return (
+        <SettingsCard title="Prescription Settings" body="Prescription output uses current consultation documentation until template storage is added.">
+          <div className="grid gap-3 md:grid-cols-2">
+            <PlaceholderTile title="Digital Signature Upload" body="Requires a secure file storage field before upload persistence can be enabled." />
+            <PlaceholderTile title="Prescription Templates" body="Reusable templates need a prescription template table." />
+          </div>
+        </SettingsCard>
+      );
+    }
 
-      <SettingsCard title="Account Activity Logs" body="Credential review activity already tracked by the Healthko audit model.">
-        {doctor.audits?.length ? (
-          <div className="space-y-3">
-            {doctor.audits.map((audit) => (
+    if (activeSection === "privacy") {
+      return (
+        <SettingsCard title="Privacy & Consent" body="Clinical access follows doctor authentication and role-based consultation ownership.">
+          <div className="grid gap-3 md:grid-cols-2">
+            <ToggleRow label="Patient Data Access Permissions" description="Access is limited to assigned consultations and patient records." />
+            <ToggleRow label="Telehealth Compliance Acknowledgment" description="Doctor account operates under Healthko telehealth workflow policies." checked={doctor.isVerified} />
+          </div>
+        </SettingsCard>
+      );
+    }
+
+    return (
+      <SettingsCard title="Support & Help" body="Credential review and support context for the doctor account.">
+        <div className="space-y-3">
+          <ReadOnlyTile label="NPI" value={doctor.npi} />
+          {doctor.audits?.length ? (
+            doctor.audits.map((audit) => (
               <article key={audit.id} className="rounded-lg border border-slate-200 p-3 text-sm">
                 <p className="font-black text-slate-950">{audit.status}</p>
                 <p className="mt-1 font-semibold text-slate-500">License {audit.licenseNumber}, {audit.licenseState}</p>
                 <p className="mt-1 text-xs font-semibold text-slate-500">Submitted {formatDate(audit.submittedAt)}</p>
               </article>
-            ))}
-          </div>
-        ) : (
-          <p className="text-sm font-semibold text-slate-500">No credential audit activity is available for this account yet.</p>
-        )}
+            ))
+          ) : (
+            <PlaceholderTile title="Credential Audit" body="No credential audit activity is available for this account yet." />
+          )}
+        </div>
       </SettingsCard>
-    </div>
+    );
+  }, [activeSection, doctor.audits, doctor.createdAt, doctor.isVerified, doctor.npi, form, isPending, saveDoctorProfile, setField, showToast]);
+
+  return (
+    <>
+      <SettingsToastStack toasts={toasts} />
+      <SettingsLayout
+        role="doctor"
+        sections={doctorSections}
+        activeSection={activeSection}
+        onSectionChange={setActiveSection}
+        title="Doctor Settings"
+        subtitle="Manage professional, clinical, account, and compliance settings."
+      >
+        {activeContent}
+      </SettingsLayout>
+    </>
   );
 }
 
 export function PatientSettingsModule({ patient }: { patient: PatientSettingsData }) {
   const router = useRouter();
+  const { toasts, showToast } = useSettingsToasts();
+  const [activeSection, setActiveSection] = useState<PatientSectionId>("profile");
   const [form, setForm] = useState({
     firstName: patient.firstName,
     lastName: patient.lastName,
@@ -372,78 +602,127 @@ export function PatientSettingsModule({ patient }: { patient: PatientSettingsDat
     zipCode: patient.zipCode || "",
     country: patient.country || "",
   });
-  const [status, setStatus] = useState({ error: "", success: "" });
   const [isPending, startTransition] = useTransition();
 
-  const setField = (field: keyof typeof form, value: string) => {
+  const setField = useCallback((field: keyof typeof form, value: string) => {
     setForm((current) => ({ ...current, [field]: value }));
-  };
+  }, []);
 
-  return (
-    <div className="space-y-6">
-      <SettingsCard title="Profile Management" body="Manage the personal information used for patient identity and care coordination.">
-        <form
-          onSubmit={(event) => {
-            event.preventDefault();
-            setStatus({ error: "", success: "" });
-            startTransition(async () => {
-              const result = await updatePatientProfile(form);
-              if (!result.success) {
-                setStatus({ error: result.error || "Could not update profile.", success: "" });
-                return;
-              }
-              setStatus({ error: "", success: "Profile updated." });
-              router.refresh();
-            });
-          }}
-          className="grid gap-4 md:grid-cols-2"
-        >
-          <div className="md:col-span-2">
-            <InitialsAvatar label={`${form.firstName} ${form.lastName}`} />
-          </div>
-          <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs font-bold text-amber-800 md:col-span-2">
-            Patient profile photo storage is not present in the current patient schema, so this dashboard shows initials until the data model adds a photo field.
-          </div>
-          <div className="md:col-span-2">
-            <FormStatus error={status.error} success={status.success} />
-          </div>
-          <Field label="First name" value={form.firstName} onChange={(value) => setField("firstName", value)} required />
-          <Field label="Last name" value={form.lastName} onChange={(value) => setField("lastName", value)} required />
-          <Field label="Email" type="email" value={form.email} onChange={(value) => setField("email", value)} required />
-          <div className="grid grid-cols-[96px_1fr] gap-3">
-            <Field label="Code" value={form.countryCode} onChange={(value) => setField("countryCode", value)} required />
-            <Field label="Contact number" value={form.phone} onChange={(value) => setField("phone", value)} required />
-          </div>
-          <Field label="Date of birth" type="date" value={form.dob} onChange={(value) => setField("dob", value)} required />
-          <Field label="Gender" value={form.gender} onChange={(value) => setField("gender", value)} />
-          <Field label="Address" value={form.address} onChange={(value) => setField("address", value)} />
-          <Field label="City" value={form.city} onChange={(value) => setField("city", value)} />
-          <Field label="State" value={form.state} onChange={(value) => setField("state", value)} />
-          <Field label="ZIP code" value={form.zipCode} onChange={(value) => setField("zipCode", value)} />
-          <Field label="Country" value={form.country} onChange={(value) => setField("country", value)} />
-          <button type="submit" disabled={isPending} className="rounded-lg bg-brand-teal px-4 py-3 text-sm font-black text-white disabled:bg-slate-300 md:col-span-2">
-            {isPending ? "Saving..." : "Save Patient Profile"}
-          </button>
-        </form>
-      </SettingsCard>
+  const activeContent = useMemo(() => {
+    if (activeSection === "profile") {
+      return (
+        <SettingsCard title="Profile Management" body="Manage identity, contact, address, and ZIP code information used for care coordination.">
+          <form
+            onSubmit={(event) => {
+              event.preventDefault();
+              startTransition(async () => {
+                const result = await updatePatientProfile(form);
+                if (!result.success) {
+                  showToast("error", result.error || "Could not update profile.");
+                  return;
+                }
 
-      <SettingsCard title="Medical Profile" body="Medical details are shown only when they exist in the active Healthko schema.">
-        <div className="grid gap-3 md:grid-cols-3">
-          {["Emergency contact", "Blood type", "Personal health details"].map((item) => (
-            <div key={item} className="rounded-lg border border-dashed border-slate-300 bg-slate-50 p-4">
-              <p className="text-sm font-black text-slate-800">{item}</p>
-              <p className="mt-1 text-xs font-semibold text-slate-500">Not yet supported by the current patient data model.</p>
+                showToast("success", "Patient profile updated.");
+                router.refresh();
+              });
+            }}
+            className="grid gap-4 md:grid-cols-2"
+          >
+            <div className="md:col-span-2">
+              <InitialsAvatar label={`${form.firstName} ${form.lastName}`} />
             </div>
-          ))}
+            <ReadOnlyTile label="Profile Number" value={patient.email} />
+            <Field label="First name" value={form.firstName} onChange={(value) => setField("firstName", value)} required />
+            <Field label="Last name" value={form.lastName} onChange={(value) => setField("lastName", value)} required />
+            <Field label="Date of birth" type="date" value={form.dob} onChange={(value) => setField("dob", value)} required />
+            <Field label="Gender" value={form.gender} onChange={(value) => setField("gender", value)} />
+            <Field label="Email" type="email" value={form.email} onChange={(value) => setField("email", value)} required />
+            <div className="grid grid-cols-[96px_1fr] gap-3">
+              <Field label="Code" value={form.countryCode} onChange={(value) => setField("countryCode", value)} required />
+              <Field label="Contact information" value={form.phone} onChange={(value) => setField("phone", value)} required />
+            </div>
+            <Field label="Address" value={form.address} onChange={(value) => setField("address", value)} />
+            <Field label="City" value={form.city} onChange={(value) => setField("city", value)} />
+            <Field label="State" value={form.state} onChange={(value) => setField("state", value)} />
+            <Field label="ZIP code" value={form.zipCode} onChange={(value) => setField("zipCode", value)} />
+            <Field label="Country" value={form.country} onChange={(value) => setField("country", value)} />
+            <button type="submit" disabled={isPending} className="rounded-lg bg-brand-teal px-4 py-3 text-sm font-black text-white disabled:bg-slate-300 md:col-span-2">
+              {isPending ? "Saving..." : "Save Patient Profile"}
+            </button>
+          </form>
+        </SettingsCard>
+      );
+    }
+
+    if (activeSection === "medical") {
+      return (
+        <SettingsCard title="Medical Profile" body="These fields are organized for the clinical workflow and will become editable when the patient medical profile schema is available.">
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+            <PlaceholderTile title="Height" body="Not yet supported by the current patient data model." />
+            <PlaceholderTile title="Weight" body="Not yet supported by the current patient data model." />
+            <PlaceholderTile title="Blood Type" body="Not yet supported by the current patient data model." />
+            <PlaceholderTile title="Allergies" body="Can be stored once medical profile records are introduced." />
+            <PlaceholderTile title="Existing Medical Conditions" body="Can be stored once medical profile records are introduced." />
+            <PlaceholderTile title="Current Medications" body="Current prescription records appear in Medical Access." />
+            <PlaceholderTile title="Emergency Contact Information" body="Requires emergency contact fields or a contact table." />
+          </div>
+        </SettingsCard>
+      );
+    }
+
+    if (activeSection === "security") {
+      return <AccountSecurityContent role="patient" verified={patient.emailVerified} createdAt={patient.createdAt} onToast={showToast} />;
+    }
+
+    if (activeSection === "notifications") {
+      return (
+        <SettingsCard title="Notifications" body="Dashboard notifications use the existing realtime alert system. Preference storage can be added when notification preferences are modeled.">
+          <div className="grid gap-3 md:grid-cols-2">
+            <ToggleRow label="Appointment Reminders" description="Pending, confirmed, and rescheduled appointment reminders." />
+            <ToggleRow label="Consultation Notifications" description="Live room, session, and consultation status alerts." />
+            <ToggleRow label="Email Preferences" description="Email alerts for appointment workflow updates." />
+            <ToggleRow label="SMS Preferences" description="SMS delivery can be enabled when SMS preferences are stored." checked={false} />
+          </div>
+        </SettingsCard>
+      );
+    }
+
+    if (activeSection === "privacy") {
+      return (
+        <SettingsCard title="Privacy" body="Consent status follows current patient account and telehealth workflow requirements.">
+          <div className="grid gap-3 md:grid-cols-2">
+            <ToggleRow label="Teleconsultation Consent" description="Consent is required before participating in telehealth consultations." />
+            <ToggleRow label="Data Privacy Consent" description="Healthko protects clinical access through role-based dashboard sessions." checked={patient.emailVerified} />
+          </div>
+        </SettingsCard>
+      );
+    }
+
+    return (
+      <SettingsCard title="Support & Help" body="Account assistance and care workflow support.">
+        <div className="grid gap-3 md:grid-cols-2">
+          <ReadOnlyTile label="Account Email" value={patient.email} />
+          <ReadOnlyTile label="Joined" value={formatDate(patient.createdAt)} />
+          <PlaceholderTile title="Support Center" body="Contact Healthko support for account, booking, or consultation access issues." />
+          <PlaceholderTile title="Help Documentation" body="Patient help articles can be linked here when the support knowledge base is connected." />
         </div>
       </SettingsCard>
+    );
+  }, [activeSection, form, isPending, patient.createdAt, patient.email, patient.emailVerified, router, setField, showToast]);
 
-      <PasswordManagement role="patient" />
-      <SharedAccountControls role="patient" verified={patient.emailVerified} createdAt={patient.createdAt} />
-
-      <SettingsCard title="Account Activity Logs" body="Patient activity logging is not modeled in the current schema.">
-        <p className="text-sm font-semibold text-slate-500">Security events can be added here once an account activity table is introduced.</p>
-      </SettingsCard>
-    </div>
+  return (
+    <>
+      <SettingsToastStack toasts={toasts} />
+      <SettingsLayout
+        role="patient"
+        sections={patientSections}
+        activeSection={activeSection}
+        onSectionChange={setActiveSection}
+        title="Patient Settings"
+        subtitle="Manage profile, medical, account, privacy, and support settings."
+      >
+        {activeContent}
+      </SettingsLayout>
+    </>
   );
 }

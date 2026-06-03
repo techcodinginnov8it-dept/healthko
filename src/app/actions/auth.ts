@@ -1,7 +1,7 @@
 "use server";
 
 import { createClient as createSupabaseServerClient } from "@/utils/supabase/server";
-import { prisma } from "@/lib/prisma";
+import { isPrismaConfigured, prisma } from "@/lib/prisma";
 import { clearPatientSession, createPatientSession } from "@/lib/auth/patient-session";
 import { clearDoctorSession, createDoctorSession } from "@/lib/auth/doctor-session";
 import bcrypt from "bcryptjs";
@@ -11,6 +11,10 @@ import { cookies } from "next/headers";
 
 // Seed data helper to ensure demo doctors exist in Supabase
 async function ensureFeaturedDoctorsSeeded() {
+  if (!isPrismaConfigured()) {
+    return;
+  }
+
   try {
     const doctorCount = await prisma.doctor.count();
     if (doctorCount === 0) {
@@ -89,6 +93,60 @@ type DoctorLoginPayload = {
   securityKey?: string;
 };
 
+async function validateMockPatientLogin({ email, password }: PatientLoginPayload) {
+  const patient = mockDb.findPatientByEmail(email);
+
+  if (!patient) {
+    return null;
+  }
+
+  const isMatch = await bcrypt.compare(password, patient.password);
+  if (!isMatch) {
+    return null;
+  }
+
+  return {
+    email: patient.email,
+    firstName: patient.firstName,
+    emailVerified: patient.emailVerified,
+  };
+}
+
+async function loginMockDoctor({ emailOrNpi, password, securityKey }: DoctorLoginPayload) {
+  if (!emailOrNpi || !password) {
+    return { success: false, error: "NPI/Email and password are required" };
+  }
+
+  const doctor = mockDb.findDoctorByEmailOrNpi(emailOrNpi);
+  if (!doctor) {
+    return { success: false, error: "No physician matches these credentials" };
+  }
+
+  const isMatch = await bcrypt.compare(password, doctor.password);
+  if (!isMatch) {
+    return { success: false, error: "Invalid credentials" };
+  }
+
+  if (securityKey && securityKey.length !== 6) {
+    return { success: false, error: "Security key must be a 6-digit verification code" };
+  }
+
+  await createDoctorSession({
+    userId: doctor.id,
+    email: doctor.email,
+  });
+
+  return {
+    success: true,
+    doctor: {
+      id: doctor.id,
+      name: doctor.name,
+      email: doctor.email,
+      specialty: doctor.specialty,
+    },
+  };
+}
+
 async function sendPatientSupabaseOtp({
   email,
   purpose,
@@ -132,6 +190,7 @@ async function issueEmailOtp({
       purpose,
       firstName,
     });
+    return { delivery: "email" as const };
   } catch (error: any) {
     if (
       !process.env.NEXT_PUBLIC_SUPABASE_URL ||
@@ -139,14 +198,38 @@ async function issueEmailOtp({
     ) {
       console.warn(`[Mock OTP Bypass] Supabase not configured. Use OTP code '123456' for ${email}`);
       mockDb.createEmailOtp(email, "123456", purpose, new Date(Date.now() + 10 * 60 * 1000));
-      return;
+      return { delivery: "mock" as const };
     }
     throw error;
   }
 }
 
+function withOtpDeliveryHint(message: string, delivery: "email" | "mock") {
+  if (delivery === "mock") {
+    return `${message} Local development code: 123456.`;
+  }
+
+  return message;
+}
+
 
 async function verifySupabaseEmailOtp(email: string, otp: string) {
+  if (!process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY) {
+    const purposes: OtpPurpose[] = ["login_verify", "signup_verify"];
+    const matchingOtp = purposes
+      .map((purpose) => mockDb.findLatestOtp(email, purpose))
+      .find((record) => record?.otp === otp && new Date(record.expiresAt) > new Date());
+
+    if (!matchingOtp && otp !== "123456") {
+      throw new Error("Incorrect verification code.");
+    }
+
+    if (matchingOtp) {
+      mockDb.markOtpAsUsed(matchingOtp.id);
+    }
+
+    return;
+  }
 
   const cookieStore = await cookies();
   const supabase = createSupabaseServerClient(cookieStore);
@@ -239,7 +322,7 @@ export async function requestPatientSignupOtp(data: PatientSignupPayload): Promi
 
   // Step 2: Attempt to send the verification OTP
   try {
-    await issueEmailOtp({
+    const otpDelivery = await issueEmailOtp({
       email: createdPatient.email,
       purpose: "signup_verify",
       firstName: createdPatient.firstName,
@@ -250,7 +333,10 @@ export async function requestPatientSignupOtp(data: PatientSignupPayload): Promi
       requiresOtp: true,
       purpose: "signup_verify",
       email: createdPatient.email,
-      message: "We sent a 6-digit code to your email to finish setting up your patient account.",
+      message: withOtpDeliveryHint(
+        "We sent a 6-digit code to your email to finish setting up your patient account.",
+        otpDelivery.delivery,
+      ),
     };
   } catch (otpError: any) {
     console.error("Supabase OTP send failed. Rolling back patient record creation...", otpError);
@@ -281,6 +367,39 @@ export async function verifyPatientSignupOtp(data: {
   email: string;
   otp: string;
 }): Promise<PatientOtpResponse> {
+  if (!isPrismaConfigured()) {
+    try {
+      const { email, otp } = data;
+
+      if (!email || !otp || otp.length !== 6) {
+        return { success: false, error: "A valid 6-digit verification code is required." };
+      }
+
+      const patient = mockDb.findPatientByEmail(email);
+
+      if (!patient) {
+        return { success: false, error: "We could not find that patient account." };
+      }
+
+      await verifySupabaseEmailOtp(email, otp);
+      mockDb.updatePatient(email, { emailVerified: true });
+
+      await createPatientSession({
+        userId: patient.id,
+        email: patient.email,
+      });
+
+      return {
+        success: true,
+        email: patient.email,
+        message: "Your email has been verified and your dashboard is ready.",
+      };
+    } catch (mockErr) {
+      console.error("Signup verify Mock DB failure:", mockErr);
+      return { success: false, error: "We could not verify your email." };
+    }
+  }
+
   try {
     const { email, otp } = data;
 
@@ -349,34 +468,24 @@ export async function verifyPatientSignupOtp(data: {
  */
 export async function requestPatientLoginOtp(data: PatientLoginPayload): Promise<PatientOtpResponse> {
   let validatedPatient: { email: string; firstName: string; emailVerified: boolean } | null = null;
+  const { email, password } = data;
+
+  if (!email || !password) {
+    return { success: false, error: "Email and password are required" };
+  }
 
   // Step 1: Validate credentials using Prisma or Mock DB fallback
-  try {
-    const { email, password } = data;
+  if (!isPrismaConfigured()) {
+    validatedPatient = await validateMockPatientLogin(data);
 
-    if (!email || !password) {
-      return { success: false, error: "Email and password are required" };
-    }
-
-    const patient = await prisma.patient.findUnique({
-      where: { email }
-    });
-
-    if (!patient) {
+    if (!validatedPatient) {
       return { success: false, error: "Invalid email or password" };
     }
-
-    const isMatch = await bcrypt.compare(password, patient.password);
-    if (!isMatch) {
-      return { success: false, error: "Invalid email or password" };
-    }
-
-    validatedPatient = { email: patient.email, firstName: patient.firstName, emailVerified: patient.emailVerified };
-  } catch (error: any) {
-    console.warn("Prisma login request failed, falling back to mock database:", error);
+  } else {
     try {
-      const { email, password } = data;
-      const patient = mockDb.findPatientByEmail(email);
+      const patient = await prisma.patient.findUnique({
+        where: { email }
+      });
 
       if (!patient) {
         return { success: false, error: "Invalid email or password" };
@@ -388,9 +497,13 @@ export async function requestPatientLoginOtp(data: PatientLoginPayload): Promise
       }
 
       validatedPatient = { email: patient.email, firstName: patient.firstName, emailVerified: patient.emailVerified };
-    } catch (mockErr) {
-      console.error("Login request Mock DB failure:", mockErr);
-      return { success: false, error: "Authentication failed" };
+    } catch (error: any) {
+      console.warn("Prisma login request failed, falling back to mock database:", error);
+      validatedPatient = await validateMockPatientLogin(data);
+
+      if (!validatedPatient) {
+        return { success: false, error: "Invalid email or password" };
+      }
     }
   }
 
@@ -398,20 +511,22 @@ export async function requestPatientLoginOtp(data: PatientLoginPayload): Promise
   try {
     const purpose: OtpPurpose = validatedPatient.emailVerified ? "login_verify" : "signup_verify";
 
-    await issueEmailOtp({
+    const otpDelivery = await issueEmailOtp({
       email: validatedPatient.email,
       purpose,
       firstName: validatedPatient.firstName,
     });
+
+    const message = validatedPatient.emailVerified
+      ? "We sent a 6-digit code to your email to confirm this sign-in."
+      : "Your account still needs email verification. We sent you a fresh 6-digit code.";
 
     return {
       success: true,
       requiresOtp: true,
       purpose,
       email: validatedPatient.email,
-      message: validatedPatient.emailVerified
-        ? "We sent a 6-digit code to your email to confirm this sign-in."
-        : "Your account still needs email verification. We sent you a fresh 6-digit code.",
+      message: withOtpDeliveryHint(message, otpDelivery.delivery),
     };
   } catch (otpError: any) {
     console.error("Supabase login OTP send failed:", otpError);
@@ -430,6 +545,42 @@ export async function verifyPatientLoginOtp(data: {
   otp: string;
   purpose?: OtpPurpose;
 }): Promise<PatientOtpResponse> {
+  if (!isPrismaConfigured()) {
+    try {
+      const { email, otp, purpose = "login_verify" } = data;
+
+      if (!email || !otp || otp.length !== 6) {
+        return { success: false, error: "A valid 6-digit verification code is required." };
+      }
+
+      const patient = mockDb.findPatientByEmail(email);
+
+      if (!patient) {
+        return { success: false, error: "We could not find that patient account." };
+      }
+
+      await verifySupabaseEmailOtp(email, otp);
+
+      if (purpose === "signup_verify" && !patient.emailVerified) {
+        mockDb.updatePatient(email, { emailVerified: true });
+      }
+
+      await createPatientSession({
+        userId: patient.id,
+        email: patient.email,
+      });
+
+      return {
+        success: true,
+        email: patient.email,
+        message: "Your identity has been confirmed. Redirecting to your dashboard.",
+      };
+    } catch (mockErr) {
+      console.error("Login verification Mock DB failure:", mockErr);
+      return { success: false, error: "Authentication failed" };
+    }
+  }
+
   try {
     const { email, otp, purpose = "login_verify" } = data;
 
@@ -528,6 +679,10 @@ export async function loginDoctor(data: DoctorLoginPayload) {
       return { success: false, error: "NPI/Email and password are required" };
     }
 
+    if (!isPrismaConfigured()) {
+      return loginMockDoctor(data);
+    }
+
     // Ensure our doctor seeds are loaded in Prisma
     await ensureFeaturedDoctorsSeeded();
 
@@ -572,41 +727,7 @@ export async function loginDoctor(data: DoctorLoginPayload) {
   } catch (error: unknown) {
     console.warn("Prisma doctor login failed, falling back to mock database:", error);
     try {
-      const { emailOrNpi, password, securityKey } = data;
-      
-      if (!emailOrNpi || !password) {
-        return { success: false, error: "NPI/Email and password are required" };
-      }
-
-      const doctor = mockDb.findDoctorByEmailOrNpi(emailOrNpi);
-      if (!doctor) {
-        return { success: false, error: "No physician matches these credentials" };
-      }
-
-      const isMatch = await bcrypt.compare(password, doctor.password);
-      if (!isMatch) {
-        return { success: false, error: "Invalid credentials" };
-      }
-
-      // Verify passcode (require 6-digit)
-      if (securityKey && securityKey.length !== 6) {
-        return { success: false, error: "Security key must be a 6-digit verification code" };
-      }
-
-      await createDoctorSession({
-        userId: doctor.id,
-        email: doctor.email,
-      });
-
-      return {
-        success: true,
-        doctor: {
-          id: doctor.id,
-          name: doctor.name,
-          email: doctor.email,
-          specialty: doctor.specialty
-        }
-      };
+      return await loginMockDoctor(data);
     } catch (mockErr) {
       console.error("Doctor login Mock DB failure:", mockErr);
       return { success: false, error: "Licensure lookup failed" };

@@ -49,9 +49,19 @@ export default async function PatientDashboardPage({
   const serializedDoctors = doctors.map((doc) => ({
     id: doc.id,
     name: doc.name,
+    email: doc.email,
+    npi: doc.npi,
     specialty: doc.specialty,
+    bio: doc.bio,
+    image: doc.image,
     availability: doc.availability,
     consultFee: doc.consultFee !== null ? Number(doc.consultFee) : null,
+    rating: doc.rating,
+    reviewCount: doc.reviewCount,
+    isVerified: doc.isVerified,
+    licenseNumber: doc.licenseNumber,
+    licenseState: doc.licenseState,
+    yearsExp: doc.yearsExp,
   }));
 
   return (

@@ -28,6 +28,15 @@ export type ModuleId = PatientModuleId | DoctorModuleId;
 
 export type AppointmentStatus = "PENDING" | "CONFIRMED" | "COMPLETED" | "CANCELLED" | string;
 
+export type DashboardNotification = {
+  id: string;
+  title: string;
+  body: string;
+  kind?: "appointment" | "consultation" | "message" | "prescription" | "system";
+  createdAt: Date | string;
+  readAt?: Date | string | null;
+};
+
 export type DashboardDoctor = {
   id: string;
   name: string;
@@ -73,6 +82,7 @@ export type PatientAppointment = {
   notes?: string | null;
   createdAt: Date | string;
   doctor: {
+    id?: string;
     name: string;
     specialty: string;
   };
@@ -129,6 +139,14 @@ export type RealtimeEvent =
       actorRole: DashboardRole;
       title: string;
       body: string;
+    }
+  | {
+      type: "doctor:availability-updated";
+      actorRole: "doctor";
+      doctorId: string;
+      availability: string;
+      title?: string;
+      body?: string;
     };
 
 export type ChatMessage = {
@@ -136,6 +154,7 @@ export type ChatMessage = {
   sender: DashboardRole;
   text: string;
   time: string;
+  kind?: "user" | "system";
   attachment?: ChatAttachment;
 };
 

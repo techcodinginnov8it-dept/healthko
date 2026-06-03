@@ -65,9 +65,19 @@ export default async function DoctorDashboardPage({
     .map((candidate) => ({
       id: candidate.id,
       name: candidate.name,
+      email: candidate.email,
+      npi: candidate.npi,
       specialty: candidate.specialty,
+      bio: candidate.bio,
+      image: candidate.image,
       availability: candidate.availability,
       consultFee: candidate.consultFee !== null ? Number(candidate.consultFee) : null,
+      rating: candidate.rating,
+      reviewCount: candidate.reviewCount,
+      isVerified: candidate.isVerified,
+      licenseNumber: candidate.licenseNumber,
+      licenseState: candidate.licenseState,
+      yearsExp: candidate.yearsExp,
     }));
 
   return <DoctorDashboardClient doctor={serializedDoctor} doctors={doctors} initialModule={initialModule} />;

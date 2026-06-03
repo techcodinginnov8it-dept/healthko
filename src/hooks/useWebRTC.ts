@@ -3,6 +3,45 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { Socket } from "socket.io-client";
 
+type DeviceStatus = {
+  cameraAvailable: boolean;
+  microphoneAvailable: boolean;
+  permissionState: PermissionState | "unknown";
+  message: string | null;
+};
+
+type PendingIceCandidate = RTCIceCandidateInit | RTCIceCandidate;
+
+function getMediaErrorMessage(err: unknown) {
+  if (err instanceof DOMException && (err.name === "NotAllowedError" || err.name === "PermissionDeniedError")) {
+    return "Camera or microphone permission was blocked. Allow access in your browser, then rejoin the consultation.";
+  }
+
+  if (
+    err instanceof DOMException &&
+    (err.name === "NotFoundError" || err.name === "DevicesNotFoundError" || err.name === "OverconstrainedError")
+  ) {
+    return "No matching camera or microphone was found. You can still receive the other participant's stream, or connect a device and rejoin.";
+  }
+
+  return err instanceof Error
+    ? err.message
+    : "Failed to access camera or microphone. Please check permissions.";
+}
+
+function getInsecureContextMessage() {
+  return "Camera and microphone require a secure browser context. Use localhost on this computer or open the consultation through an HTTPS tunnel on your phone.";
+}
+
+function getEmptyDeviceStatus(): DeviceStatus {
+  return {
+    cameraAvailable: false,
+    microphoneAvailable: false,
+    permissionState: "unknown",
+    message: null,
+  };
+}
+
 export function useWebRTC({
   roomId,
   role,
@@ -10,6 +49,8 @@ export function useWebRTC({
   isCameraOn,
   isMicOn,
   isActive,
+  signalingReady = true,
+  onRemoteSessionEnded,
 }: {
   roomId: string;
   role: "doctor" | "patient";
@@ -17,17 +58,94 @@ export function useWebRTC({
   isCameraOn: boolean;
   isMicOn: boolean;
   isActive: boolean;
+  signalingReady?: boolean;
+  onRemoteSessionEnded?: () => void;
 }) {
   const [localStream, setLocalStream] = useState<MediaStream | null>(null);
   const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
   const [connectionState, setConnectionState] = useState<RTCPeerConnectionState>("new");
   const [error, setError] = useState<string | null>(null);
+  const [devices, setDevices] = useState<MediaDeviceInfo[]>([]);
+  const [cameraDeviceId, setCameraDeviceId] = useState("");
+  const [microphoneDeviceId, setMicrophoneDeviceId] = useState("");
+  const [deviceStatus, setDeviceStatus] = useState<DeviceStatus>(() => getEmptyDeviceStatus());
 
   const pcRef = useRef<RTCPeerConnection | null>(null);
   const localStreamRef = useRef<MediaStream | null>(null);
   const remoteStreamRef = useRef<MediaStream | null>(null);
   const offerTimerRef = useRef<number | null>(null);
   const mediaStateRef = useRef({ isCameraOn, isMicOn });
+  const onRemoteSessionEndedRef = useRef(onRemoteSessionEnded);
+  const pendingIceCandidatesRef = useRef<PendingIceCandidate[]>([]);
+
+  useEffect(() => {
+    onRemoteSessionEndedRef.current = onRemoteSessionEnded;
+  }, [onRemoteSessionEnded]);
+
+  const refreshDevices = useCallback(async () => {
+    if (typeof window !== "undefined" && !window.isSecureContext) {
+      const message = getInsecureContextMessage();
+      setDeviceStatus({
+        cameraAvailable: false,
+        microphoneAvailable: false,
+        permissionState: "unknown",
+        message,
+      });
+      return [];
+    }
+
+    if (!navigator.mediaDevices?.enumerateDevices) {
+      setDeviceStatus({
+        cameraAvailable: false,
+        microphoneAvailable: false,
+        permissionState: "unknown",
+        message: "This browser cannot enumerate camera or microphone devices.",
+      });
+      return [];
+    }
+
+    try {
+      const availableDevices = await navigator.mediaDevices.enumerateDevices();
+      const cameraAvailable = availableDevices.some((device) => device.kind === "videoinput");
+      const microphoneAvailable = availableDevices.some((device) => device.kind === "audioinput");
+      let permissionState: DeviceStatus["permissionState"] = "unknown";
+
+      try {
+        const cameraPermission = await navigator.permissions?.query?.({ name: "camera" as PermissionName });
+        const microphonePermission = await navigator.permissions?.query?.({ name: "microphone" as PermissionName });
+        permissionState =
+          cameraPermission?.state === "denied" || microphonePermission?.state === "denied"
+            ? "denied"
+            : cameraPermission?.state === "granted" || microphonePermission?.state === "granted"
+              ? "granted"
+              : "prompt";
+      } catch {
+        permissionState = "unknown";
+      }
+
+      setDevices(availableDevices);
+      setDeviceStatus({
+        cameraAvailable,
+        microphoneAvailable,
+        permissionState,
+        message:
+          cameraAvailable || microphoneAvailable
+            ? null
+            : "No camera or microphone was detected. Connect a device or check browser permissions.",
+      });
+
+      return availableDevices;
+    } catch (err: unknown) {
+      const message = getMediaErrorMessage(err);
+      setDeviceStatus({
+        cameraAvailable: false,
+        microphoneAvailable: false,
+        permissionState: "unknown",
+        message,
+      });
+      return [];
+    }
+  }, []);
 
   const cleanup = useCallback((socket?: Socket | null) => {
     if (offerTimerRef.current) {
@@ -39,6 +157,8 @@ export function useWebRTC({
     socket?.off("webrtc:answer");
     socket?.off("webrtc:ice-candidate");
     socket?.off("webrtc:peer-ready");
+    socket?.off("webrtc:peer-ready-request");
+    socket?.off("webrtc:session-ended");
 
     if (localStreamRef.current) {
       localStreamRef.current.getTracks().forEach((track) => track.stop());
@@ -48,6 +168,7 @@ export function useWebRTC({
     setLocalStream(null);
     setRemoteStream(null);
     remoteStreamRef.current = null;
+    pendingIceCandidatesRef.current = [];
 
     if (pcRef.current) {
       pcRef.current.close();
@@ -56,6 +177,25 @@ export function useWebRTC({
 
     setConnectionState("new");
   }, []);
+
+  useEffect(() => {
+    void refreshDevices();
+
+    if (!navigator.mediaDevices?.addEventListener) {
+      return;
+    }
+
+    const handleDeviceChange = () => {
+      void refreshDevices();
+      setError("Camera or microphone devices changed. Rechecking media connection...");
+    };
+
+    navigator.mediaDevices.addEventListener("devicechange", handleDeviceChange);
+
+    return () => {
+      navigator.mediaDevices.removeEventListener("devicechange", handleDeviceChange);
+    };
+  }, [refreshDevices]);
 
   // Sync camera track enabled state
   useEffect(() => {
@@ -85,39 +225,92 @@ export function useWebRTC({
       return;
     }
 
-    const socket = getSocket();
-    if (!socket) {
-      setError("Signaling server not connected");
-      return;
+    async function getLocalMedia() {
+      if (typeof window !== "undefined" && !window.isSecureContext) {
+        const message = getInsecureContextMessage();
+        setError(message);
+        setDeviceStatus({
+          cameraAvailable: false,
+          microphoneAvailable: false,
+          permissionState: "unknown",
+          message,
+        });
+        return new MediaStream();
+      }
+
+      if (!navigator.mediaDevices?.getUserMedia) {
+        const message = "This browser cannot access camera or microphone devices. Use a current browser on localhost or HTTPS.";
+        setError(message);
+        setDeviceStatus({
+          cameraAvailable: false,
+          microphoneAvailable: false,
+          permissionState: "unknown",
+          message,
+        });
+        return new MediaStream();
+      }
+
+      const buildConstraints = (includeVideo: boolean, includeAudio: boolean): MediaStreamConstraints => ({
+        video: includeVideo
+          ? {
+              width: { ideal: 640 },
+              height: { ideal: 480 },
+              facingMode: "user",
+              ...(cameraDeviceId ? { deviceId: { exact: cameraDeviceId } } : {}),
+            }
+          : false,
+        audio: includeAudio ? (microphoneDeviceId ? { deviceId: { exact: microphoneDeviceId } } : true) : false,
+      });
+
+      try {
+        return await navigator.mediaDevices.getUserMedia(buildConstraints(true, true));
+      } catch (err: unknown) {
+        const message = getMediaErrorMessage(err);
+        setError(message);
+
+        if (
+          err instanceof DOMException &&
+          (err.name === "NotFoundError" || err.name === "DevicesNotFoundError" || err.name === "OverconstrainedError")
+        ) {
+          try {
+            return await navigator.mediaDevices.getUserMedia(buildConstraints(false, true));
+          } catch {
+            try {
+              return await navigator.mediaDevices.getUserMedia(buildConstraints(true, false));
+            } catch {
+              return new MediaStream();
+            }
+          }
+        }
+
+        return new MediaStream();
+      }
     }
-    const activeSocket = socket;
 
     async function init() {
       try {
         setError(null);
 
-        if (!navigator.mediaDevices?.getUserMedia) {
-          throw new Error("This browser cannot access camera or microphone devices. Use a current browser on localhost.");
-        }
-
-        // 1. Get user media
-        const stream = await navigator.mediaDevices.getUserMedia({
-          video: {
-            width: { ideal: 640 },
-            height: { ideal: 480 },
-            facingMode: "user"
-          },
-          audio: true,
-        });
+        // 1. Get user media when available. Missing local devices should not prevent receiving the remote stream.
+        const stream = await getLocalMedia();
         setLocalStream(stream);
         localStreamRef.current = stream;
+        void refreshDevices();
 
         // Apply current toggle state immediately
         stream.getVideoTracks().forEach((track) => {
           track.enabled = mediaStateRef.current.isCameraOn;
+          track.onended = () => {
+            setError("Camera disconnected or stopped. Reconnect the camera or switch devices.");
+            void refreshDevices();
+          };
         });
         stream.getAudioTracks().forEach((track) => {
           track.enabled = mediaStateRef.current.isMicOn;
+          track.onended = () => {
+            setError("Microphone disconnected or stopped. Reconnect the microphone or switch devices.");
+            void refreshDevices();
+          };
         });
 
         // 2. Create peer connection
@@ -129,10 +322,25 @@ export function useWebRTC({
         });
         pcRef.current = pc;
 
-        // 3. Add local tracks
-        stream.getTracks().forEach((track) => {
-          pc.addTrack(track, stream);
-        });
+        // 3. Always negotiate audio/video receive lines, then attach local tracks when available.
+        const videoTransceiver = pc.addTransceiver("video", { direction: "sendrecv" });
+        const audioTransceiver = pc.addTransceiver("audio", { direction: "sendrecv" });
+        const videoTrack = stream.getVideoTracks()[0];
+        const audioTrack = stream.getAudioTracks()[0];
+
+        if (videoTrack) {
+          await videoTransceiver.sender.replaceTrack(videoTrack);
+        }
+
+        if (audioTrack) {
+          await audioTransceiver.sender.replaceTrack(audioTrack);
+        }
+
+        pc.oniceconnectionstatechange = () => {
+          if (pcRef.current?.iceConnectionState === "failed") {
+            void pcRef.current.restartIce();
+          }
+        };
 
         // 4. Listen for remote stream tracks
         pc.ontrack = (event) => {
@@ -159,13 +367,22 @@ export function useWebRTC({
         // 5. Signal ICE candidates to the other peer
         pc.onicecandidate = (event) => {
           if (event.candidate) {
+            const activeSocket = getSocket();
+            if (!activeSocket) {
+              return;
+            }
             activeSocket.emit("webrtc:ice-candidate", { roomId, candidate: event.candidate });
           }
         };
 
         const createAndSendOffer = async () => {
           const currentPc = pcRef.current;
+          const activeSocket = getSocket();
           if (!currentPc || currentPc.signalingState !== "stable") {
+            return;
+          }
+          if (!activeSocket) {
+            setError("Camera is ready. Waiting for realtime signaling to reconnect...");
             return;
           }
 
@@ -175,15 +392,47 @@ export function useWebRTC({
         };
 
         // 6. Setup signaling listeners
+        const flushPendingIceCandidates = async () => {
+          const currentPc = pcRef.current;
+          if (!currentPc?.remoteDescription) {
+            return;
+          }
+
+          const candidates = pendingIceCandidatesRef.current.splice(0);
+          for (const candidate of candidates) {
+            try {
+              await currentPc.addIceCandidate(new RTCIceCandidate(candidate));
+            } catch (err: any) {
+              console.error("[WebRTC] Error adding queued ICE candidate:", err);
+            }
+          }
+        };
+
+        const activeSocket = getSocket();
+        if (!activeSocket || !signalingReady) {
+          setError("Camera is ready. Waiting for realtime signaling to reconnect...");
+          return;
+        }
+
         activeSocket.on("webrtc:offer", async ({ offer }) => {
           try {
             const currentPc = pcRef.current;
             if (!currentPc) return;
+            const offerCollision = currentPc.signalingState !== "stable";
+
+            if (offerCollision && role === "doctor") {
+              return;
+            }
+
+            if (offerCollision) {
+              await currentPc.setLocalDescription({ type: "rollback" });
+            }
 
             await currentPc.setRemoteDescription(new RTCSessionDescription(offer));
             const answer = await currentPc.createAnswer();
             await currentPc.setLocalDescription(answer);
             activeSocket.emit("webrtc:answer", { roomId, answer });
+            await flushPendingIceCandidates();
           } catch (err: any) {
             console.error("[WebRTC] Error setting offer / creating answer:", err);
           }
@@ -193,8 +442,10 @@ export function useWebRTC({
           try {
             const currentPc = pcRef.current;
             if (!currentPc) return;
+            if (currentPc.signalingState !== "have-local-offer") return;
 
             await currentPc.setRemoteDescription(new RTCSessionDescription(answer));
+            await flushPendingIceCandidates();
           } catch (err: any) {
             console.error("[WebRTC] Error setting answer:", err);
           }
@@ -204,6 +455,10 @@ export function useWebRTC({
           try {
             const currentPc = pcRef.current;
             if (!currentPc) return;
+            if (!currentPc.remoteDescription) {
+              pendingIceCandidatesRef.current.push(candidate);
+              return;
+            }
 
             await currentPc.addIceCandidate(new RTCIceCandidate(candidate));
           } catch (err: any) {
@@ -223,43 +478,43 @@ export function useWebRTC({
           }
         });
 
+        activeSocket.on("webrtc:peer-ready-request", () => {
+          activeSocket.emit("webrtc:peer-ready", { roomId, role });
+        });
+
+        activeSocket.on("webrtc:session-ended", () => {
+          onRemoteSessionEndedRef.current?.();
+        });
+
         // 7. Join video room
         activeSocket.emit("webrtc:join-room", { roomId });
         activeSocket.emit("webrtc:peer-ready", { roomId, role });
-
-        // 8. Patient keeps a fallback initiator in case the ready signal is missed.
-        if (role === "patient") {
-          offerTimerRef.current = window.setTimeout(async () => {
-            try {
-              await createAndSendOffer();
-            } catch (err: any) {
-              console.error("[WebRTC] Error creating initiator offer:", err);
-            }
-          }, 1000);
-        }
+        activeSocket.emit("webrtc:peer-ready-request", { roomId });
 
       } catch (err: unknown) {
-        console.error("[WebRTC] Initializing getUserMedia or RTCPeerConnection failed:", err);
-        if (err instanceof DOMException && (err.name === "NotAllowedError" || err.name === "PermissionDeniedError")) {
-          setError("Camera or microphone permission was blocked. Allow access in your browser, then rejoin the consultation.");
-          return;
-        }
-
-        if (err instanceof DOMException && (err.name === "NotFoundError" || err.name === "DevicesNotFoundError")) {
-          setError("No camera or microphone was found. Connect a device, then rejoin the consultation.");
-          return;
-        }
-
-        setError(err instanceof Error ? err.message : "Failed to access camera or microphone. Please check permissions.");
+        console.warn("[WebRTC] Initialization failed:", err);
+        setError(getMediaErrorMessage(err));
       }
     }
 
     init();
 
     return () => {
-      cleanup(socket);
+      cleanup(getSocket());
     };
-  }, [cleanup, getSocket, isActive, role, roomId]);
+  }, [cameraDeviceId, cleanup, getSocket, isActive, microphoneDeviceId, refreshDevices, role, roomId, signalingReady]);
 
-  return { localStream, remoteStream, connectionState, error };
+  return {
+    localStream,
+    remoteStream,
+    connectionState,
+    error,
+    devices,
+    cameraDeviceId,
+    microphoneDeviceId,
+    deviceStatus,
+    setCameraDeviceId,
+    setMicrophoneDeviceId,
+    refreshDevices,
+  };
 }
