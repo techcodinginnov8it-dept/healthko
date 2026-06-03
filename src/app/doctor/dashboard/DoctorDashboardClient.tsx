@@ -594,7 +594,7 @@ export default function DoctorDashboardClient({ doctor, doctors, initialModule =
     setToasts((current) => [...current, { id, tone, message }]);
     window.setTimeout(() => {
       setToasts((current) => current.filter((toast) => toast.id !== id));
-    }, 3000);
+    }, 5000);
   }, []);
 
   const onRealtimeEvent = useCallback((event: RealtimeEvent) => {
@@ -995,7 +995,8 @@ export default function DoctorDashboardClient({ doctor, doctors, initialModule =
     setActionLoadingId(null);
 
     if (!result.success || !result.roomId || !result.accessToken) {
-      setSubmitState({ loading: false, error: result.error || "Could not start secure video session.", success: "" });
+      showToast("error", result.error || "Could not start secure video session.");
+      setSubmitState({ loading: false, error: "", success: "" });
       return;
     }
 
@@ -1019,7 +1020,8 @@ export default function DoctorDashboardClient({ doctor, doctors, initialModule =
     }
 
     if (!clinicalNotes.trim() || !prescriptionText.trim()) {
-      setSubmitState({ loading: false, error: "Clinical notes and prescription are required.", success: "" });
+      showToast("error", "Clinical notes and prescription are required.");
+      setSubmitState({ loading: false, error: "", success: "" });
       return;
     }
 
@@ -1032,12 +1034,14 @@ export default function DoctorDashboardClient({ doctor, doctors, initialModule =
     });
 
     if (!result.success) {
-      setSubmitState({ loading: false, error: result.error || "Could not complete consultation.", success: "" });
+      showToast("error", result.error || "Could not complete consultation.");
+      setSubmitState({ loading: false, error: "", success: "" });
       return;
     }
 
     realtime.publish({ type: "appointment:updated", appointmentId: session.activeAppointment.id, actorRole: "doctor" });
-    setSubmitState({ loading: false, error: "", success: "Consultation completed and patient portal updated." });
+    showToast("success", "Consultation completed and patient portal updated.");
+    setSubmitState({ loading: false, error: "", success: "" });
     if (session.roomId) {
       realtime.endVideoRoom(session.roomId);
     }
@@ -1197,8 +1201,6 @@ export default function DoctorDashboardClient({ doctor, doctors, initialModule =
               <section className="rounded-xl border border-slate-800 bg-slate-900 p-4">
                 <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-teal">Clinical Documentation</p>
                 <form onSubmit={handleComplete} className="mt-4 space-y-3">
-                  {submitState.error && <div className="rounded-lg border border-brand-red/20 bg-brand-red/10 p-3 text-xs font-bold text-brand-red">{submitState.error}</div>}
-                  {submitState.success && <div className="rounded-lg border border-emerald-900 bg-emerald-950/40 p-3 text-xs font-bold text-emerald-300">{submitState.success}</div>}
                   <div className="rounded-xl border border-amber-400/20 border-l-4 border-l-amber-300 bg-amber-300/10 p-4">
                     <p className="text-[10px] font-black uppercase tracking-[0.2em] text-amber-200">Chief Complaint</p>
                     <p className="mt-2 text-sm font-semibold leading-relaxed text-amber-50">

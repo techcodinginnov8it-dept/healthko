@@ -452,6 +452,15 @@ export default function PatientDashboardClient({ patient, doctors, initialModule
     error: "",
     success: "",
   });
+  const [toasts, setToasts] = useState<{ id: string; tone: "success" | "error"; message: string }[]>([]);
+
+  const showToast = useCallback((tone: "success" | "error", message: string) => {
+    const id = `toast-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    setToasts((current) => [...current, { id, tone, message }]);
+    window.setTimeout(() => {
+      setToasts((current) => current.filter((toast) => toast.id !== id));
+    }, 5000);
+  }, []);
 
   const onRealtimeEvent = useCallback((event: RealtimeEvent) => {
     if (
@@ -632,12 +641,14 @@ export default function PatientDashboardClient({ patient, doctors, initialModule
   const handleBookAppointment = async (event: React.FormEvent) => {
     event.preventDefault();
     if (!selectedDoctorId || !appointmentDate || !appointmentTime || !reason.trim()) {
-      setBookingState({ loading: false, error: "Choose a doctor, date, time, and visit reason.", success: "" });
+      showToast("error", "Choose a doctor, date, time, and visit reason.");
+      setBookingState({ loading: false, error: "", success: "" });
       return;
     }
 
     if (patientConflict) {
-      setBookingState({ loading: false, error: "You already have an appointment in this time window. Choose another slot.", success: "" });
+      showToast("error", "You already have an appointment in this time window. Choose another slot.");
+      setBookingState({ loading: false, error: "", success: "" });
       return;
     }
 
@@ -650,7 +661,8 @@ export default function PatientDashboardClient({ patient, doctors, initialModule
 
     if (!result.success) {
       const errorMessage = "error" in result ? result.error : "";
-      setBookingState({ loading: false, error: errorMessage || "Could not book appointment.", success: "" });
+      showToast("error", errorMessage || "Could not book appointment.");
+      setBookingState({ loading: false, error: "", success: "" });
       return;
     }
 
@@ -663,7 +675,8 @@ export default function PatientDashboardClient({ patient, doctors, initialModule
       title: "New appointment request",
       body: "A patient submitted a consultation request for review.",
     });
-    setBookingState({ loading: false, error: "", success: "Appointment request sent to the doctor." });
+    showToast("success", "Appointment request sent to the doctor.");
+    setBookingState({ loading: false, error: "", success: "" });
     setAppointmentDate("");
     setAppointmentTime("");
     setReason("");
@@ -711,7 +724,8 @@ export default function PatientDashboardClient({ patient, doctors, initialModule
 
     if (!result.success) {
       const errorMessage = "error" in result ? result.error : "";
-      setBookingState({ loading: false, error: errorMessage || "Could not confirm follow-up appointment.", success: "" });
+      showToast("error", errorMessage || "Could not confirm follow-up appointment.");
+      setBookingState({ loading: false, error: "", success: "" });
       return;
     }
 
@@ -723,7 +737,8 @@ export default function PatientDashboardClient({ patient, doctors, initialModule
       title: "Follow-up confirmed",
       body: "The patient confirmed the follow-up appointment.",
     });
-    setBookingState({ loading: false, error: "", success: "Follow-up appointment confirmed." });
+    showToast("success", "Follow-up appointment confirmed.");
+    setBookingState({ loading: false, error: "", success: "" });
     router.refresh();
   };
 
@@ -740,13 +755,15 @@ export default function PatientDashboardClient({ patient, doctors, initialModule
   const handleRequestFollowUpReschedule = async (event: React.FormEvent) => {
     event.preventDefault();
     if (!rescheduleAppointment || !rescheduleDate || !rescheduleTime) {
-      setBookingState({ loading: false, error: "Choose your requested follow-up date and time.", success: "" });
+      showToast("error", "Choose your requested follow-up date and time.");
+      setBookingState({ loading: false, error: "", success: "" });
       return;
     }
 
     const requestedDate = new Date(`${rescheduleDate}T${rescheduleTime}:00`);
     if (Number.isNaN(requestedDate.getTime()) || requestedDate <= appointmentReferenceTime) {
-      setBookingState({ loading: false, error: "Choose a valid future date and time.", success: "" });
+      showToast("error", "Choose a valid future date and time.");
+      setBookingState({ loading: false, error: "", success: "" });
       return;
     }
 
@@ -760,7 +777,8 @@ export default function PatientDashboardClient({ patient, doctors, initialModule
 
     if (!result.success) {
       const errorMessage = "error" in result ? result.error : "";
-      setBookingState({ loading: false, error: errorMessage || "Could not request follow-up rescheduling.", success: "" });
+      showToast("error", errorMessage || "Could not request follow-up rescheduling.");
+      setBookingState({ loading: false, error: "", success: "" });
       return;
     }
 
@@ -773,7 +791,8 @@ export default function PatientDashboardClient({ patient, doctors, initialModule
       title: "Reschedule requested",
       body: `The patient requested ${formatDateTime(requestedDate)} for the follow-up consultation.`,
     });
-    setBookingState({ loading: false, error: "", success: "Reschedule request sent to the doctor." });
+    showToast("success", "Reschedule request sent to the doctor.");
+    setBookingState({ loading: false, error: "", success: "" });
     setRescheduleAppointment(null);
     setRescheduleDate("");
     setRescheduleTime("");
@@ -855,6 +874,22 @@ export default function PatientDashboardClient({ patient, doctors, initialModule
         </form>
       )}
     >
+      <div className="fixed right-5 top-5 z-[80] flex w-[min(24rem,calc(100vw-2.5rem))] flex-col gap-3">
+        {toasts.map((toast) => (
+          <div
+            key={toast.id}
+            className={`rounded-xl border px-4 py-3 text-sm font-bold shadow-2xl backdrop-blur ${
+              toast.tone === "success"
+                ? "border-emerald-200 bg-emerald-50/95 text-emerald-700"
+                : "border-red-200 bg-red-50/95 text-red-700"
+            }`}
+            role="status"
+          >
+            {toast.message}
+          </div>
+        ))}
+      </div>
+
       {profileDoctor && <DoctorProfileModal doctor={profileDoctor} onClose={() => setProfileDoctor(null)} />}
 
       {rescheduleAppointment && (
@@ -878,11 +913,6 @@ export default function PatientDashboardClient({ patient, doctors, initialModule
               </button>
             </div>
             <form onSubmit={handleRequestFollowUpReschedule} className="mt-5 grid gap-4 md:grid-cols-2">
-              {bookingState.error && (
-                <div className="rounded-lg border border-brand-red/20 bg-brand-red/10 p-3 text-xs font-bold text-brand-red md:col-span-2">
-                  {bookingState.error}
-                </div>
-              )}
               <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 md:col-span-2">
                 <p className="text-xs font-black text-slate-950">{rescheduleAppointment.doctor.name}</p>
                 <p className="mt-1 text-[11px] font-semibold text-slate-500">
@@ -1006,7 +1036,6 @@ export default function PatientDashboardClient({ patient, doctors, initialModule
               </button>
             </div>
             <form onSubmit={handleBookAppointment} className="mt-5 grid gap-4 md:grid-cols-2">
-              {bookingState.error && <div className="rounded-lg border border-brand-red/20 bg-brand-red/10 p-3 text-xs font-bold text-brand-red md:col-span-2">{bookingState.error}</div>}
               <label className="space-y-1 text-xs font-black uppercase tracking-wider text-slate-500 md:col-span-2">
                 Doctor
                 <select value={selectedDoctorId} onChange={(event) => setSelectedDoctorId(event.target.value)} className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm font-semibold normal-case text-slate-900">
@@ -1131,11 +1160,6 @@ export default function PatientDashboardClient({ patient, doctors, initialModule
                 </button>
               </div>
             </div>
-            {bookingState.success && (
-              <div className="mt-4 rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-xs font-bold text-emerald-700">
-                {bookingState.success}
-              </div>
-            )}
             <div className="mt-5 grid gap-3 md:grid-cols-4">
               {[
                 { label: "Pending", value: appointments.filter((item) => item.status === "PENDING").length },
