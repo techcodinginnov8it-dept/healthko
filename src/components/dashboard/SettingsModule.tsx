@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import type { ReactNode } from "react";
+import type { ChangeEvent, ReactNode } from "react";
 import { useCallback, useMemo, useState, useTransition } from "react";
 import {
   updateDoctorPassword,
@@ -17,11 +17,14 @@ type DoctorSettingsData = {
   image?: string | null;
   specialty: string;
   availability: string;
+  status?: string | null;
   npi: string;
   licenseNumber?: string | null;
   licenseState?: string | null;
   bio?: string | null;
   consultFee?: number | null;
+  consultationDuration?: number | null;
+  consultationDurationUnit?: string | null;
   yearsExp?: number | null;
   isVerified: boolean;
   createdAt: Date | string;
@@ -39,6 +42,7 @@ type PatientSettingsData = {
   firstName: string;
   lastName: string;
   email: string;
+  image?: string | null;
   countryCode?: string;
   phone: string;
   dob: string;
@@ -48,6 +52,15 @@ type PatientSettingsData = {
   state?: string | null;
   zipCode?: string | null;
   country?: string | null;
+  height?: string | null;
+  weight?: string | null;
+  bloodType?: string | null;
+  allergies?: string | null;
+  existingConditions?: string | null;
+  currentMedications?: string | null;
+  emergencyContactName?: string | null;
+  emergencyContactPhone?: string | null;
+  emergencyContactRelation?: string | null;
   emailVerified: boolean;
   createdAt: Date | string;
 };
@@ -117,7 +130,7 @@ function Field({
         value={value}
         onChange={(event) => onChange(event.target.value)}
         placeholder={placeholder}
-        className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm font-semibold normal-case text-slate-900 outline-none focus:border-brand-teal"
+        className="mt-1 h-11 w-full rounded-lg border border-slate-200 px-3 text-sm font-semibold normal-case text-slate-900 outline-none focus:border-brand-teal"
       />
     </label>
   );
@@ -141,9 +154,36 @@ function TextAreaField({
         value={value}
         onChange={(event) => onChange(event.target.value)}
         placeholder={placeholder}
-        rows={4}
-        className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm font-semibold normal-case text-slate-900 outline-none focus:border-brand-teal"
+        rows={2}
+        className="mt-1 min-h-20 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm font-semibold normal-case text-slate-900 outline-none focus:border-brand-teal"
       />
+    </label>
+  );
+}
+
+function SelectField({
+  label,
+  value,
+  onChange,
+  options,
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  options: { value: string; label: string }[];
+}) {
+  return (
+    <label className="space-y-1 text-xs font-black uppercase tracking-wider text-slate-500">
+      {label}
+      <select
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        className="mt-1 h-11 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm font-semibold normal-case text-slate-900 outline-none focus:border-brand-teal"
+      >
+        {options.map((option) => (
+          <option key={option.value} value={option.value}>{option.label}</option>
+        ))}
+      </select>
     </label>
   );
 }
@@ -193,13 +233,13 @@ function InitialsAvatar({ label, image }: { label: string; image?: string | null
     <div className="flex items-center gap-4">
       {image ? (
         <div
-          className="h-16 w-16 rounded-xl bg-cover bg-center"
+          className="h-20 w-20 shrink-0 rounded-full border-4 border-white bg-cover bg-center shadow-sm ring-1 ring-slate-200"
           style={{ backgroundImage: `url(${image})` }}
           aria-label={`${label} profile image`}
           role="img"
         />
       ) : (
-        <div className="flex h-16 w-16 items-center justify-center rounded-xl bg-brand-teal/10 text-lg font-black text-brand-teal">
+        <div className="flex h-20 w-20 shrink-0 items-center justify-center rounded-full border-4 border-white bg-brand-teal/10 text-xl font-black text-brand-teal shadow-sm ring-1 ring-slate-200">
           {label.split(" ").map((part) => part[0]).join("").slice(0, 2).toUpperCase()}
         </div>
       )}
@@ -207,6 +247,80 @@ function InitialsAvatar({ label, image }: { label: string; image?: string | null
         <p className="text-sm font-black text-slate-950">{label}</p>
         <p className="mt-1 text-xs font-semibold text-slate-500">Profile identity visible across secure care workflows.</p>
       </div>
+    </div>
+  );
+}
+
+function ProfileImageUploader({
+  label,
+  image,
+  onChange,
+  onToast,
+}: {
+  label: string;
+  image?: string | null;
+  onChange: (value: string) => void;
+  onToast: (tone: "success" | "error", message: string) => void;
+}) {
+  const handleFile = (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) {
+      return;
+    }
+
+    if (!file.type.startsWith("image/")) {
+      onToast("error", "Upload an image file for the profile picture.");
+      return;
+    }
+
+    if (file.size > 750_000) {
+      onToast("error", "Profile image must be 750 KB or smaller.");
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (typeof reader.result === "string") {
+        onChange(reader.result);
+      }
+    };
+    reader.readAsDataURL(file);
+  };
+
+  return (
+    <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 md:col-span-2">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <InitialsAvatar label={label} image={image} />
+        <div className="flex shrink-0 flex-wrap gap-2 sm:justify-end">
+          <label className="cursor-pointer rounded-lg bg-slate-900 px-4 py-2.5 text-xs font-black text-white">
+            Upload Photo
+            <input type="file" accept="image/*" onChange={handleFile} className="sr-only" />
+          </label>
+          {image && (
+            <button type="button" onClick={() => onChange("")} className="rounded-lg border border-slate-200 bg-white px-4 py-2.5 text-xs font-black text-slate-700">
+              Remove Photo
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function StickyActionBar({
+  children,
+  tone = "light",
+}: {
+  children: ReactNode;
+  tone?: "light" | "dark";
+}) {
+  return (
+    <div
+      className={`sticky bottom-0 z-20 -mx-5 -mb-5 mt-2 flex justify-end rounded-b-xl border-t px-5 py-3 backdrop-blur md:col-span-2 xl:col-span-3 ${
+        tone === "dark" ? "border-slate-800 bg-slate-950/90" : "border-slate-200 bg-white/90"
+      }`}
+    >
+      {children}
     </div>
   );
 }
@@ -401,12 +515,15 @@ function AccountSecurityContent({
 export function DoctorSettingsModule({
   doctor,
   onProfileUpdated,
+  onToast,
 }: {
   doctor: DoctorSettingsData;
-  onProfileUpdated?: (availability: string) => void;
+  onProfileUpdated?: (profile: { availability: string; status: string }) => void;
+  onToast?: (tone: "success" | "error", message: string) => void;
 }) {
   const router = useRouter();
-  const { toasts, showToast } = useSettingsToasts();
+  const { toasts, showToast: showLocalToast } = useSettingsToasts();
+  const showToast = onToast ?? showLocalToast;
   const [activeSection, setActiveSection] = useState<DoctorSectionId>("professional");
   const [form, setForm] = useState({
     name: doctor.name,
@@ -414,12 +531,14 @@ export function DoctorSettingsModule({
     image: doctor.image || "",
     specialty: doctor.specialty,
     availability: doctor.availability,
+    status: doctor.status || "ONLINE",
     licenseNumber: doctor.licenseNumber || "",
     licenseState: doctor.licenseState || "",
     bio: doctor.bio || "",
     consultFee: doctor.consultFee?.toString() || "",
     yearsExp: doctor.yearsExp?.toString() || "",
-    duration: "30",
+    consultationDuration: doctor.consultationDuration?.toString() || "30",
+    consultationDurationUnit: doctor.consultationDurationUnit || "minutes",
     admitMode: "manual",
   });
   const [isPending, startTransition] = useTransition();
@@ -437,7 +556,7 @@ export function DoctorSettingsModule({
       }
 
       showToast("success", message);
-      onProfileUpdated?.(form.availability);
+      onProfileUpdated?.({ availability: form.availability, status: form.status });
       router.refresh();
     });
   }, [form, onProfileUpdated, router, showToast]);
@@ -453,21 +572,30 @@ export function DoctorSettingsModule({
             }}
             className="grid gap-4 md:grid-cols-2"
           >
-            <div className="md:col-span-2">
-              <InitialsAvatar label={form.name} image={form.image} />
-            </div>
-            <Field label="Profile picture URL" value={form.image} onChange={(value) => setField("image", value)} placeholder="https://..." />
+            <ProfileImageUploader label={form.name} image={form.image} onChange={(value) => setField("image", value)} onToast={showToast} />
             <Field label="Full name" value={form.name} onChange={(value) => setField("name", value)} required />
             <Field label="Medical specialty" value={form.specialty} onChange={(value) => setField("specialty", value)} required />
+            <SelectField
+              label="Dashboard status"
+              value={form.status}
+              onChange={(value) => setField("status", value)}
+              options={[
+                { value: "ONLINE", label: "Online" },
+                { value: "BUSY", label: "Busy" },
+                { value: "OFFLINE", label: "Offline" },
+              ]}
+            />
             <Field label="License number" value={form.licenseNumber} onChange={(value) => setField("licenseNumber", value)} />
             <Field label="License state" value={form.licenseState} onChange={(value) => setField("licenseState", value)} />
             <Field label="Contact information" type="email" value={form.email} onChange={(value) => setField("email", value)} required />
             <Field label="Consultation fee" type="number" value={form.consultFee} onChange={(value) => setField("consultFee", value)} />
             <Field label="Years experience" type="number" value={form.yearsExp} onChange={(value) => setField("yearsExp", value)} />
             <TextAreaField label="Professional bio" value={form.bio} onChange={(value) => setField("bio", value)} />
-            <button type="submit" disabled={isPending} className="rounded-lg bg-brand-teal px-4 py-3 text-sm font-black text-white disabled:bg-slate-300 md:col-span-2">
-              {isPending ? "Saving..." : "Save Professional Profile"}
-            </button>
+            <StickyActionBar>
+              <button type="submit" disabled={isPending} className="rounded-lg bg-brand-teal px-5 py-3 text-sm font-black text-white disabled:bg-slate-300">
+                {isPending ? "Saving..." : "Save Professional Profile"}
+              </button>
+            </StickyActionBar>
           </form>
         </SettingsCard>
       );
@@ -484,12 +612,22 @@ export function DoctorSettingsModule({
             className="grid gap-4 md:grid-cols-2"
           >
             <Field label="Working hours" value={form.availability} onChange={(value) => setField("availability", value)} required />
-            <Field label="Consultation schedule" value={form.availability} onChange={(value) => setField("availability", value)} required />
-            <Field label="Consultation duration" type="number" value={form.duration} onChange={(value) => setField("duration", value)} />
+            <Field label="Consultation duration" type="number" value={form.consultationDuration} onChange={(value) => setField("consultationDuration", value)} />
+            <SelectField
+              label="Duration unit"
+              value={form.consultationDurationUnit}
+              onChange={(value) => setField("consultationDurationUnit", value)}
+              options={[
+                { value: "minutes", label: "Minutes" },
+                { value: "hours", label: "Hours" },
+              ]}
+            />
             <ReadOnlyTile label="Availability Status" value={doctor.isVerified ? "Verified doctor schedule" : "Pending verification"} />
-            <button type="submit" disabled={isPending} className="rounded-lg bg-brand-teal px-4 py-3 text-sm font-black text-white disabled:bg-slate-300 md:col-span-2">
-              {isPending ? "Saving..." : "Save Schedule"}
-            </button>
+            <StickyActionBar>
+              <button type="submit" disabled={isPending} className="rounded-lg bg-brand-teal px-5 py-3 text-sm font-black text-white disabled:bg-slate-300">
+                {isPending ? "Saving..." : "Save Schedule"}
+              </button>
+            </StickyActionBar>
           </form>
         </SettingsCard>
       );
@@ -569,7 +707,7 @@ export function DoctorSettingsModule({
 
   return (
     <>
-      <SettingsToastStack toasts={toasts} />
+      {!onToast && <SettingsToastStack toasts={toasts} />}
       <SettingsLayout
         role="doctor"
         sections={doctorSections}
@@ -584,14 +722,22 @@ export function DoctorSettingsModule({
   );
 }
 
-export function PatientSettingsModule({ patient }: { patient: PatientSettingsData }) {
+export function PatientSettingsModule({
+  patient,
+  onToast,
+}: {
+  patient: PatientSettingsData;
+  onToast?: (tone: "success" | "error", message: string) => void;
+}) {
   const router = useRouter();
-  const { toasts, showToast } = useSettingsToasts();
+  const { toasts, showToast: showLocalToast } = useSettingsToasts();
+  const showToast = onToast ?? showLocalToast;
   const [activeSection, setActiveSection] = useState<PatientSectionId>("profile");
   const [form, setForm] = useState({
     firstName: patient.firstName,
     lastName: patient.lastName,
     email: patient.email,
+    image: patient.image || "",
     countryCode: patient.countryCode || "+1",
     phone: patient.phone,
     dob: patient.dob,
@@ -601,6 +747,15 @@ export function PatientSettingsModule({ patient }: { patient: PatientSettingsDat
     state: patient.state || "",
     zipCode: patient.zipCode || "",
     country: patient.country || "",
+    height: patient.height || "",
+    weight: patient.weight || "",
+    bloodType: patient.bloodType || "",
+    allergies: patient.allergies || "",
+    existingConditions: patient.existingConditions || "",
+    currentMedications: patient.currentMedications || "",
+    emergencyContactName: patient.emergencyContactName || "",
+    emergencyContactPhone: patient.emergencyContactPhone || "",
+    emergencyContactRelation: patient.emergencyContactRelation || "",
   });
   const [isPending, startTransition] = useTransition();
 
@@ -628,10 +783,7 @@ export function PatientSettingsModule({ patient }: { patient: PatientSettingsDat
             }}
             className="grid gap-4 md:grid-cols-2"
           >
-            <div className="md:col-span-2">
-              <InitialsAvatar label={`${form.firstName} ${form.lastName}`} />
-            </div>
-            <ReadOnlyTile label="Profile Number" value={patient.email} />
+            <ProfileImageUploader label={`${form.firstName} ${form.lastName}`} image={form.image} onChange={(value) => setField("image", value)} onToast={showToast} />
             <Field label="First name" value={form.firstName} onChange={(value) => setField("firstName", value)} required />
             <Field label="Last name" value={form.lastName} onChange={(value) => setField("lastName", value)} required />
             <Field label="Date of birth" type="date" value={form.dob} onChange={(value) => setField("dob", value)} required />
@@ -641,14 +793,18 @@ export function PatientSettingsModule({ patient }: { patient: PatientSettingsDat
               <Field label="Code" value={form.countryCode} onChange={(value) => setField("countryCode", value)} required />
               <Field label="Contact information" value={form.phone} onChange={(value) => setField("phone", value)} required />
             </div>
-            <Field label="Address" value={form.address} onChange={(value) => setField("address", value)} />
+            <div className="md:col-span-2">
+              <Field label="Address" value={form.address} onChange={(value) => setField("address", value)} />
+            </div>
             <Field label="City" value={form.city} onChange={(value) => setField("city", value)} />
             <Field label="State" value={form.state} onChange={(value) => setField("state", value)} />
             <Field label="ZIP code" value={form.zipCode} onChange={(value) => setField("zipCode", value)} />
             <Field label="Country" value={form.country} onChange={(value) => setField("country", value)} />
-            <button type="submit" disabled={isPending} className="rounded-lg bg-brand-teal px-4 py-3 text-sm font-black text-white disabled:bg-slate-300 md:col-span-2">
-              {isPending ? "Saving..." : "Save Patient Profile"}
-            </button>
+            <StickyActionBar>
+              <button type="submit" disabled={isPending} className="rounded-lg bg-brand-teal px-5 py-3 text-sm font-black text-white disabled:bg-slate-300">
+                {isPending ? "Saving..." : "Save Patient Profile"}
+              </button>
+            </StickyActionBar>
           </form>
         </SettingsCard>
       );
@@ -656,16 +812,43 @@ export function PatientSettingsModule({ patient }: { patient: PatientSettingsDat
 
     if (activeSection === "medical") {
       return (
-        <SettingsCard title="Medical Profile" body="These fields are organized for the clinical workflow and will become editable when the patient medical profile schema is available.">
-          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-            <PlaceholderTile title="Height" body="Not yet supported by the current patient data model." />
-            <PlaceholderTile title="Weight" body="Not yet supported by the current patient data model." />
-            <PlaceholderTile title="Blood Type" body="Not yet supported by the current patient data model." />
-            <PlaceholderTile title="Allergies" body="Can be stored once medical profile records are introduced." />
-            <PlaceholderTile title="Existing Medical Conditions" body="Can be stored once medical profile records are introduced." />
-            <PlaceholderTile title="Current Medications" body="Current prescription records appear in Medical Access." />
-            <PlaceholderTile title="Emergency Contact Information" body="Requires emergency contact fields or a contact table." />
-          </div>
+        <SettingsCard title="Medical Profile" body="Manage medical details used by patient overview, QR, and doctor clinical context.">
+          <form
+            onSubmit={(event) => {
+              event.preventDefault();
+              startTransition(async () => {
+                const result = await updatePatientProfile(form);
+                if (!result.success) {
+                  showToast("error", result.error || "Could not update medical profile.");
+                  return;
+                }
+
+                showToast("success", "Medical profile updated.");
+                router.refresh();
+              });
+            }}
+            className="grid gap-4 md:grid-cols-2 xl:grid-cols-3"
+          >
+            <Field label="Height" value={form.height} onChange={(value) => setField("height", value)} placeholder="e.g. 170 cm" />
+            <Field label="Weight" value={form.weight} onChange={(value) => setField("weight", value)} placeholder="e.g. 68 kg" />
+            <Field label="Blood type" value={form.bloodType} onChange={(value) => setField("bloodType", value)} placeholder="e.g. O+" />
+            <TextAreaField label="Allergies" value={form.allergies} onChange={(value) => setField("allergies", value)} />
+            <TextAreaField label="Existing medical conditions" value={form.existingConditions} onChange={(value) => setField("existingConditions", value)} />
+            <TextAreaField label="Current medications" value={form.currentMedications} onChange={(value) => setField("currentMedications", value)} />
+            <section className="rounded-xl border border-slate-200 bg-slate-50 p-4 md:col-span-2 xl:col-span-3">
+              <h3 className="text-sm font-black text-slate-950">Emergency Contact Information</h3>
+              <div className="mt-3 grid gap-4 md:grid-cols-3">
+                <Field label="Contact name" value={form.emergencyContactName} onChange={(value) => setField("emergencyContactName", value)} />
+                <Field label="Contact phone" value={form.emergencyContactPhone} onChange={(value) => setField("emergencyContactPhone", value)} />
+                <Field label="Relation" value={form.emergencyContactRelation} onChange={(value) => setField("emergencyContactRelation", value)} />
+              </div>
+            </section>
+            <StickyActionBar>
+              <button type="submit" disabled={isPending} className="rounded-lg bg-brand-teal px-5 py-3 text-sm font-black text-white disabled:bg-slate-300">
+                {isPending ? "Saving..." : "Save Medical Profile"}
+              </button>
+            </StickyActionBar>
+          </form>
         </SettingsCard>
       );
     }
@@ -712,7 +895,7 @@ export function PatientSettingsModule({ patient }: { patient: PatientSettingsDat
 
   return (
     <>
-      <SettingsToastStack toasts={toasts} />
+      {!onToast && <SettingsToastStack toasts={toasts} />}
       <SettingsLayout
         role="patient"
         sections={patientSections}

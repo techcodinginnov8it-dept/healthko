@@ -44,7 +44,10 @@ export type DashboardDoctor = {
   npi?: string;
   specialty: string;
   availability: string;
+  status?: string | null;
   consultFee?: number | null;
+  consultationDuration?: number | null;
+  consultationDurationUnit?: string | null;
   rating?: number;
   reviewCount?: number;
   isVerified?: boolean;
@@ -60,6 +63,7 @@ export type DashboardPatient = {
   firstName: string;
   lastName: string;
   email: string;
+  image?: string | null;
   phone: string;
   countryCode?: string;
   dob: string;
@@ -69,6 +73,15 @@ export type DashboardPatient = {
   state?: string | null;
   zipCode?: string | null;
   country?: string | null;
+  height?: string | null;
+  weight?: string | null;
+  bloodType?: string | null;
+  allergies?: string | null;
+  existingConditions?: string | null;
+  currentMedications?: string | null;
+  emergencyContactName?: string | null;
+  emergencyContactPhone?: string | null;
+  emergencyContactRelation?: string | null;
   emailVerified: boolean;
 };
 
@@ -145,6 +158,15 @@ export type RealtimeEvent =
       actorRole: "doctor";
       doctorId: string;
       availability: string;
+      status?: string;
+      title?: string;
+      body?: string;
+    }
+  | {
+      type: "doctor:status-updated";
+      actorRole: "doctor";
+      doctorId: string;
+      status: string;
       title?: string;
       body?: string;
     };

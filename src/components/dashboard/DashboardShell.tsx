@@ -91,6 +91,7 @@ export function DashboardShell<TModule extends ModuleId>({
   title,
   subtitle,
   profile,
+  statusIndicator,
   connectionState,
   notificationBell,
   collapsed,
@@ -108,7 +109,9 @@ export function DashboardShell<TModule extends ModuleId>({
     name: string;
     detail: string;
     meta?: string;
+    image?: string | null;
   };
+  statusIndicator?: ReactNode;
   connectionState: "connected" | "reconnecting" | "offline";
   notificationBell?: ReactNode;
   collapsed: boolean;
@@ -182,13 +185,22 @@ export function DashboardShell<TModule extends ModuleId>({
 
         <div className={`space-y-4 border-t pt-5 ${isDoctor ? "border-slate-850" : "border-slate-200"}`}>
           {!collapsed && (
-            <div>
-              <p className="text-[10px] font-black uppercase tracking-[0.2em] text-brand-teal">
-                {isDoctor ? "Clinical account" : "Patient account"}
-              </p>
-              <p className="mt-1 text-sm font-black">{profile.name}</p>
-              <p className={`text-xs font-semibold ${muted}`}>{profile.detail}</p>
-              {profile.meta && <p className={`mt-1 text-[10px] font-bold ${muted}`}>{profile.meta}</p>}
+            <div className="flex items-start gap-3">
+              {profile.image ? (
+                <div className="h-10 w-10 shrink-0 rounded-lg bg-cover bg-center" style={{ backgroundImage: `url(${profile.image})` }} role="img" aria-label={`${profile.name} profile image`} />
+              ) : (
+                <div className="grid h-10 w-10 shrink-0 place-items-center rounded-lg bg-brand-teal/10 text-xs font-black text-brand-teal">
+                  {profile.name.split(" ").map((part) => part[0]).join("").slice(0, 2).toUpperCase()}
+                </div>
+              )}
+              <div className="min-w-0">
+                <p className="text-[10px] font-black uppercase tracking-[0.2em] text-brand-teal">
+                  {isDoctor ? "Clinical account" : "Patient account"}
+                </p>
+                <p className="mt-1 truncate text-sm font-black">{profile.name}</p>
+                <p className={`truncate text-xs font-semibold ${muted}`}>{profile.detail}</p>
+                {profile.meta && <p className={`mt-1 text-[10px] font-bold ${muted}`}>{profile.meta}</p>}
+              </div>
             </div>
           )}
           {onLogout()}
@@ -205,6 +217,7 @@ export function DashboardShell<TModule extends ModuleId>({
               <h1 className="mt-1 font-display text-2xl font-black tracking-tight">{title}</h1>
             </div>
             <div className="flex items-center gap-2">
+              {statusIndicator}
               {notificationBell}
               <span
                 className={`rounded-full border px-3 py-1 text-[10px] font-black uppercase tracking-widest ${

@@ -30,6 +30,7 @@ export async function getDoctorsList() {
         bio: true,
         image: true,
         availability: true,
+        status: true,
         consultFee: true,
         rating: true,
         reviewCount: true,

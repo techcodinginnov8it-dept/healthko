@@ -179,7 +179,9 @@ export function useWebRTC({
   }, []);
 
   useEffect(() => {
-    void refreshDevices();
+    window.queueMicrotask(() => {
+      void refreshDevices();
+    });
 
     if (!navigator.mediaDevices?.addEventListener) {
       return;
@@ -220,8 +222,10 @@ export function useWebRTC({
   // Handle initialization and signaling lifecycle
   useEffect(() => {
     if (!isActive || !roomId) {
-      cleanup();
-      setError(null);
+      window.queueMicrotask(() => {
+        cleanup();
+        setError(null);
+      });
       return;
     }
 
@@ -350,12 +354,14 @@ export function useWebRTC({
             return;
           }
 
-          if (!remoteStreamRef.current) {
-            remoteStreamRef.current = new MediaStream();
-            setRemoteStream(remoteStreamRef.current);
+          const existingTracks = remoteStreamRef.current?.getTracks() || [];
+          if (existingTracks.some((track) => track.id === event.track.id)) {
+            return;
           }
 
-          remoteStreamRef.current.addTrack(event.track);
+          const nextStream = new MediaStream([...existingTracks, event.track]);
+          remoteStreamRef.current = nextStream;
+          setRemoteStream(nextStream);
         };
 
         pc.onconnectionstatechange = () => {
@@ -391,6 +397,23 @@ export function useWebRTC({
           activeSocket.emit("webrtc:offer", { roomId, offer });
         };
 
+        const scheduleDoctorOffer = (delay = 250) => {
+          if (role !== "doctor") {
+            return;
+          }
+
+          if (offerTimerRef.current) {
+            window.clearTimeout(offerTimerRef.current);
+          }
+
+          offerTimerRef.current = window.setTimeout(() => {
+            offerTimerRef.current = null;
+            void createAndSendOffer().catch((err: unknown) => {
+              console.error("[WebRTC] Error creating scheduled doctor offer:", err);
+            });
+          }, delay);
+        };
+
         // 6. Setup signaling listeners
         const flushPendingIceCandidates = async () => {
           const currentPc = pcRef.current;
@@ -402,7 +425,7 @@ export function useWebRTC({
           for (const candidate of candidates) {
             try {
               await currentPc.addIceCandidate(new RTCIceCandidate(candidate));
-            } catch (err: any) {
+            } catch (err: unknown) {
               console.error("[WebRTC] Error adding queued ICE candidate:", err);
             }
           }
@@ -433,7 +456,7 @@ export function useWebRTC({
             await currentPc.setLocalDescription(answer);
             activeSocket.emit("webrtc:answer", { roomId, answer });
             await flushPendingIceCandidates();
-          } catch (err: any) {
+          } catch (err: unknown) {
             console.error("[WebRTC] Error setting offer / creating answer:", err);
           }
         });
@@ -446,7 +469,7 @@ export function useWebRTC({
 
             await currentPc.setRemoteDescription(new RTCSessionDescription(answer));
             await flushPendingIceCandidates();
-          } catch (err: any) {
+          } catch (err: unknown) {
             console.error("[WebRTC] Error setting answer:", err);
           }
         });
@@ -461,7 +484,7 @@ export function useWebRTC({
             }
 
             await currentPc.addIceCandidate(new RTCIceCandidate(candidate));
-          } catch (err: any) {
+          } catch (err: unknown) {
             console.error("[WebRTC] Error adding ICE candidate:", err);
           }
         });
@@ -471,15 +494,12 @@ export function useWebRTC({
             return;
           }
 
-          try {
-            await createAndSendOffer();
-          } catch (err: any) {
-            console.error("[WebRTC] Error creating doctor offer after peer-ready:", err);
-          }
+          scheduleDoctorOffer();
         });
 
         activeSocket.on("webrtc:peer-ready-request", () => {
           activeSocket.emit("webrtc:peer-ready", { roomId, role });
+          scheduleDoctorOffer(500);
         });
 
         activeSocket.on("webrtc:session-ended", () => {
@@ -490,6 +510,7 @@ export function useWebRTC({
         activeSocket.emit("webrtc:join-room", { roomId });
         activeSocket.emit("webrtc:peer-ready", { roomId, role });
         activeSocket.emit("webrtc:peer-ready-request", { roomId });
+        scheduleDoctorOffer(900);
 
       } catch (err: unknown) {
         console.warn("[WebRTC] Initialization failed:", err);

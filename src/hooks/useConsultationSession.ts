@@ -71,8 +71,10 @@ export function useConsultationSession<TAppointment extends { id: string }>({
   const [state, setState] = useState<SessionState<TAppointment>>(idleState as SessionState<TAppointment>);
 
   useEffect(() => {
-    setState(getInitialState<TAppointment>(storageKey));
-    setHasLoadedStoredState(true);
+    window.queueMicrotask(() => {
+      setState(getInitialState<TAppointment>(storageKey));
+      setHasLoadedStoredState(true);
+    });
   }, [storageKey]);
 
   useEffect(() => {
@@ -258,7 +260,7 @@ export function useConsultationSession<TAppointment extends { id: string }>({
       return;
     }
 
-    if (event.type === "notification:new" || event.type === "doctor:availability-updated") {
+    if (event.type === "notification:new" || event.type === "doctor:availability-updated" || event.type === "doctor:status-updated") {
       return;
     }
 

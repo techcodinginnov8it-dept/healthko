@@ -58,6 +58,7 @@ model Patient {
   phone         String
 
   // Profile
+  image         String?
   dob           String
   gender        String?
   address       String?
@@ -65,6 +66,15 @@ model Patient {
   state         String?
   zipCode       String?
   country       String?
+  height        String?
+  weight        String?
+  bloodType     String?
+  allergies     String?
+  existingConditions String?
+  currentMedications String?
+  emergencyContactName String?
+  emergencyContactPhone String?
+  emergencyContactRelation String?
 
   // Auth
   password      String
@@ -111,7 +121,10 @@ model Doctor {
   rating         Float           @default(0.0)
   reviewCount    Int             @default(0)
   availability   String          @default("Available")
+  status         String          @default("ONLINE")
   consultFee     Float?
+  consultationDuration Int       @default(30)
+  consultationDurationUnit String @default("minutes")
 
   // Credentials
   licenseNumber  String?

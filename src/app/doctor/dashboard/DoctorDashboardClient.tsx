@@ -143,6 +143,17 @@ function getStatusClasses(status: string) {
   }
 }
 
+function getDoctorStatusMeta(status?: string | null) {
+  switch (status) {
+    case "BUSY":
+      return { label: "Busy", className: "border-amber-300/40 bg-amber-300/10 text-amber-100" };
+    case "OFFLINE":
+      return { label: "Offline", className: "border-slate-700 bg-slate-900 text-slate-300" };
+    default:
+      return { label: "Online", className: "border-emerald-300/40 bg-emerald-300/10 text-emerald-100" };
+  }
+}
+
 function PatientOperationsHub({
   patients,
   allPatientCount,
@@ -299,13 +310,6 @@ function PatientOperationsHub({
                   </p>
                 </div>
                 <div className="flex flex-wrap gap-2">
-                  <button
-                    type="button"
-                    onClick={() => onOpenFollowUp(selectedPatient.id, selectedConsultation?.reason)}
-                    className="rounded-lg bg-brand-teal px-3 py-2 text-xs font-black text-white"
-                  >
-                    Schedule Follow-Up
-                  </button>
                   {selectedPatientActiveAppointment ? (
                     <button type="button" onClick={onOpenLive} className="rounded-lg bg-brand-red px-3 py-2 text-xs font-black text-white">
                       Open Live Room
@@ -320,6 +324,13 @@ function PatientOperationsHub({
                       Start Consultation
                     </button>
                   ) : null}
+                  <button
+                    type="button"
+                    onClick={() => onOpenFollowUp(selectedPatient.id, selectedConsultation?.reason)}
+                    className="rounded-lg bg-brand-teal px-3 py-2 text-xs font-black text-white"
+                  >
+                    Schedule Follow-Up
+                  </button>
                 </div>
               </div>
               <div className="mt-5 grid gap-3 md:grid-cols-4">
@@ -383,16 +394,6 @@ function PatientOperationsHub({
                             Cancel
                           </button>
                         </>
-                      )}
-                      {selectedConsultation.status === "CONFIRMED" && (
-                        <button
-                          type="button"
-                          disabled={actionLoadingId === selectedConsultation.id}
-                          onClick={() => onStartLive(selectedConsultation)}
-                          className="rounded-lg bg-brand-red px-3 py-2 text-xs font-black text-white disabled:bg-slate-800"
-                        >
-                          Start Live Session
-                        </button>
                       )}
                     </div>
                   </div>
@@ -579,6 +580,7 @@ export default function DoctorDashboardClient({ doctor, doctors, initialModule =
   const [patientStatusFilter, setPatientStatusFilter] = useState<PatientStatusFilter>("all");
   const [selectedPatientId, setSelectedPatientId] = useState("");
   const [selectedConsultationId, setSelectedConsultationId] = useState("");
+  const [selectedLiveAppointmentId, setSelectedLiveAppointmentId] = useState("");
   const [patientRecordsTab, setPatientRecordsTab] = useState<PatientRecordsTab>("records");
   const [patientReferenceTime] = useState(() => Date.now());
   const [calendarAnchorDate, setCalendarAnchorDate] = useState(() => {
@@ -587,6 +589,7 @@ export default function DoctorDashboardClient({ doctor, doctors, initialModule =
     return today;
   });
   const [doctorAvailability, setDoctorAvailability] = useState(doctor.availability);
+  const [doctorStatus, setDoctorStatus] = useState(doctor.status || "ONLINE");
   const [toasts, setToasts] = useState<{ id: string; tone: "success" | "error"; message: string }[]>([]);
 
   const showToast = useCallback((tone: "success" | "error", message: string) => {
@@ -617,6 +620,14 @@ export default function DoctorDashboardClient({ doctor, doctors, initialModule =
 
     if (event.type === "doctor:availability-updated" && event.doctorId === doctor.id) {
       setDoctorAvailability(event.availability);
+      if (event.status) {
+        setDoctorStatus(event.status);
+      }
+      router.refresh();
+    }
+
+    if (event.type === "doctor:status-updated" && event.doctorId === doctor.id) {
+      setDoctorStatus(event.status);
       router.refresh();
     }
   }, [doctor.id, router]);
@@ -668,6 +679,21 @@ export default function DoctorDashboardClient({ doctor, doctors, initialModule =
   const completedConsultations = useMemo(
     () => doctor.bookings.filter((booking) => booking.status === "COMPLETED"),
     [doctor.bookings]
+  );
+  const consultationQueue = useMemo(
+    () =>
+      doctor.bookings
+        .filter((booking) => booking.status === "CONFIRMED" || booking.status === "COMPLETED")
+        .sort((a, b) => new Date(a.scheduledAt).getTime() - new Date(b.scheduledAt).getTime()),
+    [doctor.bookings]
+  );
+  const selectedLiveAppointment = useMemo(
+    () =>
+      consultationQueue.find((booking) => booking.id === selectedLiveAppointmentId) ||
+      consultationQueue.find((booking) => booking.status === "CONFIRMED") ||
+      consultationQueue[0] ||
+      null,
+    [consultationQueue, selectedLiveAppointmentId]
   );
   const patients = useMemo(() => {
     const map = new Map<string, DoctorAppointment["patient"]>();
@@ -1063,6 +1089,7 @@ export default function DoctorDashboardClient({ doctor, doctors, initialModule =
   };
 
   const tone = "dark" as const;
+  const doctorStatusMeta = getDoctorStatusMeta(doctorStatus);
 
   return (
     <DashboardShell
@@ -1075,6 +1102,7 @@ export default function DoctorDashboardClient({ doctor, doctors, initialModule =
         name: doctor.name,
         detail: doctor.specialty,
         meta: `NPI ${doctor.npi}`,
+        image: doctor.image,
       }}
       connectionState={realtime.connectionState}
       notificationBell={
@@ -1085,6 +1113,11 @@ export default function DoctorDashboardClient({ doctor, doctors, initialModule =
           onMarkAllRead={dashboardNotifications.markAllRead}
           onOpenNotifications={() => setActiveModule("notifications")}
         />
+      }
+      statusIndicator={
+        <span className={`rounded-full border px-3 py-1 text-[10px] font-black uppercase tracking-widest ${doctorStatusMeta.className}`}>
+          {doctorStatusMeta.label}
+        </span>
       }
       collapsed={collapsed}
       onToggleCollapsed={() => setCollapsed((value) => !value)}
@@ -1217,24 +1250,116 @@ export default function DoctorDashboardClient({ doctor, doctors, initialModule =
             }
           />
         ) : (
-          <section className="space-y-4">
-            <h2 className="text-lg font-black text-white">Live Consultations</h2>
-            {confirmedAppointments.length ? (
-              confirmedAppointments.map((booking) => (
-                <AppointmentCard
-                  key={booking.id}
-                  tone={tone}
-                  title={`${booking.patient.firstName} ${booking.patient.lastName}`}
-                  subtitle={booking.patient.email}
-                  scheduledAt={booking.scheduledAt}
-                  status={booking.status}
-                  reason={booking.reason}
-                  actions={<button type="button" onClick={() => startLiveSession(booking)} className="rounded-lg bg-brand-red px-3 py-2 text-xs font-black text-white">Start Consultation</button>}
-                />
-              ))
-            ) : (
-              <EmptyState title="No live consultations" body="Accept appointment requests from Schedule Console first." />
-            )}
+          <section className="grid min-h-[calc(100vh-9rem)] gap-5 xl:grid-cols-[40fr_60fr]">
+            <aside className="min-h-0 rounded-xl border border-slate-850 bg-slate-900">
+              <header className="border-b border-slate-850 p-4">
+                <p className="text-[10px] font-black uppercase tracking-[0.2em] text-brand-teal">Live Consultation</p>
+                <h2 className="mt-1 text-lg font-black text-white">Appointment Queue</h2>
+                <p className="mt-1 text-xs font-semibold text-slate-400">Confirmed and completed consultations update this workspace.</p>
+              </header>
+              <div className="max-h-[calc(100vh-15rem)] space-y-3 overflow-y-auto p-4">
+                {consultationQueue.length ? consultationQueue.map((booking) => {
+                  const active = selectedLiveAppointment?.id === booking.id;
+
+                  return (
+                    <button
+                      key={booking.id}
+                      type="button"
+                      onClick={() => setSelectedLiveAppointmentId(booking.id)}
+                      className={`w-full rounded-xl border p-4 text-left transition ${
+                        active ? "border-brand-teal bg-brand-teal/10 shadow-[0_0_0_1px_rgba(20,184,166,0.22)]" : "border-slate-800 bg-slate-950 hover:border-slate-700"
+                      }`}
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <p className="truncate text-sm font-black text-white">{booking.patient.firstName} {booking.patient.lastName}</p>
+                          <p className="mt-1 text-xs font-semibold text-slate-400">{formatDateTime(booking.scheduledAt)}</p>
+                        </div>
+                        <span className={`shrink-0 rounded-full border px-2 py-0.5 text-[10px] font-black uppercase ${getStatusClasses(booking.status)}`}>
+                          {booking.status}
+                        </span>
+                      </div>
+                    </button>
+                  );
+                }) : (
+                  <EmptyState title="No consultation queue" body="Accepted appointments appear here when they are ready for consultation." />
+                )}
+              </div>
+            </aside>
+
+            <section className="min-w-0 rounded-xl border border-slate-850 bg-slate-900">
+              {selectedLiveAppointment ? (
+                <div className="flex h-full flex-col">
+                  <header className="border-b border-slate-850 p-5">
+                    <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                      <div className="min-w-0">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <h2 className="text-2xl font-black text-white">
+                            {selectedLiveAppointment.patient.firstName} {selectedLiveAppointment.patient.lastName}
+                          </h2>
+                          <span className={`rounded-full border px-2.5 py-1 text-[10px] font-black uppercase ${getStatusClasses(selectedLiveAppointment.status)}`}>
+                            {selectedLiveAppointment.status}
+                          </span>
+                        </div>
+                        <p className="mt-2 text-xs font-semibold text-slate-400">Patient ID: {selectedLiveAppointment.patient.id}</p>
+                        <p className="mt-1 text-xs font-semibold text-slate-500">{selectedLiveAppointment.patient.email} / {selectedLiveAppointment.patient.phone}</p>
+                      </div>
+                      <button
+                        type="button"
+                        disabled={selectedLiveAppointment.status !== "CONFIRMED" || actionLoadingId === selectedLiveAppointment.id}
+                        onClick={() => startLiveSession(selectedLiveAppointment)}
+                        className="rounded-lg bg-brand-red px-5 py-3 text-xs font-black text-white disabled:bg-slate-800 disabled:text-slate-500"
+                      >
+                        Start Consultation
+                      </button>
+                    </div>
+                  </header>
+
+                  <div className="grid flex-1 gap-4 p-5">
+                    <section className="rounded-xl border border-amber-300/20 border-l-4 border-l-amber-300 bg-amber-300/10 p-4">
+                      <p className="text-[10px] font-black uppercase tracking-[0.2em] text-amber-200">Chief Complaint</p>
+                      <p className="mt-3 text-sm font-semibold leading-relaxed text-amber-50">
+                        {selectedLiveAppointment.reason || "No chief complaint was provided for this appointment."}
+                      </p>
+                    </section>
+
+                    <section className="rounded-xl border border-slate-800 bg-slate-950 p-4">
+                      <p className="text-[10px] font-black uppercase tracking-[0.2em] text-brand-teal">Vitals</p>
+                      <div className="mt-4 grid gap-3 md:grid-cols-3">
+                        {[
+                          { label: "Blood Pressure", value: "Not recorded" },
+                          { label: "Heart Rate", value: "Not recorded" },
+                          { label: "Body Temperature", value: "Not recorded" },
+                        ].map((vital) => (
+                          <div key={vital.label} className="rounded-lg border border-slate-800 bg-slate-900 p-4">
+                            <p className="text-[10px] font-black uppercase tracking-wider text-slate-500">{vital.label}</p>
+                            <p className="mt-2 text-sm font-black text-white">{vital.value}</p>
+                          </div>
+                        ))}
+                      </div>
+                    </section>
+
+                    <section className="rounded-xl border border-slate-800 bg-slate-950 p-4">
+                      <p className="text-[10px] font-black uppercase tracking-[0.2em] text-brand-teal">Attached Documents</p>
+                      <div className="mt-4 grid gap-3 md:grid-cols-2">
+                        <div className="rounded-lg border border-dashed border-slate-700 bg-slate-900 p-4">
+                          <p className="text-sm font-black text-white">Lab results</p>
+                          <p className="mt-1 text-xs font-semibold text-slate-500">No uploaded lab file is attached to this consultation.</p>
+                        </div>
+                        <div className="rounded-lg border border-dashed border-slate-700 bg-slate-900 p-4">
+                          <p className="text-sm font-black text-white">Imaging</p>
+                          <p className="mt-1 text-xs font-semibold text-slate-500">No imaging file is attached to this consultation.</p>
+                        </div>
+                      </div>
+                    </section>
+                  </div>
+                </div>
+              ) : (
+                <div className="p-6">
+                  <EmptyState title="No consultation selected" body="Select an appointment from the queue to review pre-consultation details." />
+                </div>
+              )}
+            </section>
           </section>
         )
       )}
@@ -1389,7 +1514,7 @@ export default function DoctorDashboardClient({ doctor, doctors, initialModule =
                         <option value="">Refer</option>
                         {doctors.map((candidate) => (
                           <option key={candidate.id} value={candidate.id}>
-                            {candidate.name}
+                            {candidate.name} - {candidate.specialty}
                           </option>
                         ))}
                       </select>
@@ -1483,17 +1608,28 @@ export default function DoctorDashboardClient({ doctor, doctors, initialModule =
 
       {activeModule === "settings" && (
         <DoctorSettingsModule
-          doctor={{ ...doctor, availability: doctorAvailability }}
-          onProfileUpdated={(availability) => {
+          doctor={{ ...doctor, availability: doctorAvailability, status: doctorStatus }}
+          onToast={showToast}
+          onProfileUpdated={({ availability, status }) => {
             setDoctorAvailability(availability);
+            setDoctorStatus(status);
             showToast("success", "Availability updated and schedule calendar synchronized.");
             realtime.publish({
               type: "doctor:availability-updated",
               actorRole: "doctor",
               doctorId: doctor.id,
               availability,
+              status,
               title: "Doctor availability updated",
               body: "The consultation calendar schedule was updated.",
+            });
+            realtime.publish({
+              type: "doctor:status-updated",
+              actorRole: "doctor",
+              doctorId: doctor.id,
+              status,
+              title: "Doctor status updated",
+              body: `Doctor dashboard status is now ${getDoctorStatusMeta(status).label}.`,
             });
           }}
         />

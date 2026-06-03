@@ -18,17 +18,21 @@ type DoctorProfilePayload = {
   image?: string;
   specialty: string;
   availability: string;
+  status?: string;
   licenseNumber?: string;
   licenseState?: string;
   bio?: string;
   consultFee?: string;
   yearsExp?: string;
+  consultationDuration?: string;
+  consultationDurationUnit?: string;
 };
 
 type PatientProfilePayload = {
   firstName: string;
   lastName: string;
   email: string;
+  image?: string;
   countryCode: string;
   phone: string;
   dob: string;
@@ -38,6 +42,15 @@ type PatientProfilePayload = {
   state?: string;
   zipCode?: string;
   country?: string;
+  height?: string;
+  weight?: string;
+  bloodType?: string;
+  allergies?: string;
+  existingConditions?: string;
+  currentMedications?: string;
+  emergencyContactName?: string;
+  emergencyContactPhone?: string;
+  emergencyContactRelation?: string;
 };
 
 type PasswordPayload = {
@@ -59,6 +72,23 @@ function parseOptionalNumber(value?: string) {
 
   const parsed = Number(trimmed);
   return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
+}
+
+function parseDuration(value?: string) {
+  const parsed = parseOptionalNumber(value);
+  if (!parsed) {
+    return 30;
+  }
+
+  return Math.max(1, Math.round(parsed));
+}
+
+function normalizeDurationUnit(value?: string) {
+  return value === "hours" ? "hours" : "minutes";
+}
+
+function normalizeDoctorStatus(value?: string) {
+  return value === "BUSY" || value === "OFFLINE" ? value : "ONLINE";
 }
 
 function validateEmail(email: string) {
@@ -92,6 +122,7 @@ export async function updateDoctorProfile(data: DoctorProfilePayload): Promise<A
     const email = data.email.trim().toLowerCase();
     const specialty = data.specialty.trim();
     const availability = data.availability.trim();
+    const status = normalizeDoctorStatus(data.status);
 
     if (!name || !email || !specialty || !availability) {
       return { success: false, error: "Name, email, specialization, and availability are required." };
@@ -103,6 +134,8 @@ export async function updateDoctorProfile(data: DoctorProfilePayload): Promise<A
 
     const consultFee = parseOptionalNumber(data.consultFee);
     const yearsExp = parseOptionalNumber(data.yearsExp);
+    const consultationDuration = parseDuration(data.consultationDuration);
+    const consultationDurationUnit = normalizeDurationUnit(data.consultationDurationUnit);
 
     const existing = await prisma.doctor.findFirst({
       where: {
@@ -124,11 +157,14 @@ export async function updateDoctorProfile(data: DoctorProfilePayload): Promise<A
         image: normalizeOptional(data.image),
         specialty,
         availability,
+        status,
         licenseNumber: normalizeOptional(data.licenseNumber),
         licenseState: normalizeOptional(data.licenseState),
         bio: normalizeOptional(data.bio),
         consultFee,
         yearsExp,
+        consultationDuration,
+        consultationDurationUnit,
       },
     });
 
@@ -160,11 +196,14 @@ export async function updateDoctorProfile(data: DoctorProfilePayload): Promise<A
         image: normalizeOptional(data.image),
         specialty: data.specialty.trim(),
         availability: data.availability.trim(),
+        status: normalizeDoctorStatus(data.status),
         licenseNumber: normalizeOptional(data.licenseNumber),
         licenseState: normalizeOptional(data.licenseState),
         bio: normalizeOptional(data.bio),
         consultFee: parseOptionalNumber(data.consultFee),
         yearsExp: parseOptionalNumber(data.yearsExp),
+        consultationDuration: parseDuration(data.consultationDuration),
+        consultationDurationUnit: normalizeDurationUnit(data.consultationDurationUnit),
       });
 
       revalidatePath("/doctor/dashboard");
@@ -211,6 +250,7 @@ export async function updatePatientProfile(data: PatientProfilePayload): Promise
         firstName,
         lastName,
         email,
+        image: normalizeOptional(data.image),
         countryCode: data.countryCode.trim() || "+1",
         phone,
         dob,
@@ -220,6 +260,15 @@ export async function updatePatientProfile(data: PatientProfilePayload): Promise
         state: normalizeOptional(data.state),
         zipCode: normalizeOptional(data.zipCode),
         country: normalizeOptional(data.country),
+        height: normalizeOptional(data.height),
+        weight: normalizeOptional(data.weight),
+        bloodType: normalizeOptional(data.bloodType),
+        allergies: normalizeOptional(data.allergies),
+        existingConditions: normalizeOptional(data.existingConditions),
+        currentMedications: normalizeOptional(data.currentMedications),
+        emergencyContactName: normalizeOptional(data.emergencyContactName),
+        emergencyContactPhone: normalizeOptional(data.emergencyContactPhone),
+        emergencyContactRelation: normalizeOptional(data.emergencyContactRelation),
       },
     });
 
@@ -249,6 +298,7 @@ export async function updatePatientProfile(data: PatientProfilePayload): Promise
         firstName: data.firstName.trim(),
         lastName: data.lastName.trim(),
         email,
+        image: normalizeOptional(data.image),
         countryCode: data.countryCode.trim() || "+1",
         phone: data.phone.trim(),
         dob: data.dob.trim(),
@@ -258,6 +308,15 @@ export async function updatePatientProfile(data: PatientProfilePayload): Promise
         state: normalizeOptional(data.state),
         zipCode: normalizeOptional(data.zipCode),
         country: normalizeOptional(data.country),
+        height: normalizeOptional(data.height),
+        weight: normalizeOptional(data.weight),
+        bloodType: normalizeOptional(data.bloodType),
+        allergies: normalizeOptional(data.allergies),
+        existingConditions: normalizeOptional(data.existingConditions),
+        currentMedications: normalizeOptional(data.currentMedications),
+        emergencyContactName: normalizeOptional(data.emergencyContactName),
+        emergencyContactPhone: normalizeOptional(data.emergencyContactPhone),
+        emergencyContactRelation: normalizeOptional(data.emergencyContactRelation),
       });
 
       revalidatePath("/patient/dashboard");

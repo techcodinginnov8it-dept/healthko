@@ -11,6 +11,7 @@ export type MockPatient = {
   lastName: string;
   suffix: string | null;
   email: string;
+  image?: string | null;
   countryCode: string;
   phone: string;
   dob: string;
@@ -20,6 +21,15 @@ export type MockPatient = {
   state?: string | null;
   zipCode?: string | null;
   country?: string | null;
+  height?: string | null;
+  weight?: string | null;
+  bloodType?: string | null;
+  allergies?: string | null;
+  existingConditions?: string | null;
+  currentMedications?: string | null;
+  emergencyContactName?: string | null;
+  emergencyContactPhone?: string | null;
+  emergencyContactRelation?: string | null;
   password: string;
   hipaaConsent: boolean;
   isActive: boolean;
@@ -41,7 +51,10 @@ export type MockDoctor = {
   rating: number;
   reviewCount: number;
   availability: string;
+  status?: string | null;
   consultFee: number | null;
+  consultationDuration?: number | null;
+  consultationDurationUnit?: string | null;
   licenseNumber?: string | null;
   licenseState?: string | null;
   yearsExp?: number | null;
@@ -388,7 +401,9 @@ export const mockDb = {
                 firstName: patient.firstName,
                 lastName: patient.lastName,
                 email: patient.email,
+                image: patient.image ?? null,
                 phone: patient.phone,
+                countryCode: patient.countryCode,
                 dob: patient.dob,
                 gender: patient.gender,
                 address: patient.address ?? null,
@@ -396,6 +411,15 @@ export const mockDb = {
                 state: patient.state ?? null,
                 zipCode: patient.zipCode ?? null,
                 country: patient.country ?? null,
+                height: patient.height ?? null,
+                weight: patient.weight ?? null,
+                bloodType: patient.bloodType ?? null,
+                allergies: patient.allergies ?? null,
+                existingConditions: patient.existingConditions ?? null,
+                currentMedications: patient.currentMedications ?? null,
+                emergencyContactName: patient.emergencyContactName ?? null,
+                emergencyContactPhone: patient.emergencyContactPhone ?? null,
+                emergencyContactRelation: patient.emergencyContactRelation ?? null,
                 emailVerified: patient.emailVerified,
               }
             : null,

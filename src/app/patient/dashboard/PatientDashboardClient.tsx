@@ -152,8 +152,12 @@ function isDoctorFollowUp(appointment: PatientAppointment) {
   return appointment.reason?.toLowerCase().startsWith("follow-up") || appointment.notes?.includes("Follow-up requested by doctor");
 }
 
+function escapePdfText(value: string) {
+  return value.replace(/\\/g, "\\\\").replace(/\(/g, "\\(").replace(/\)/g, "\\)");
+}
+
 function downloadMedicalReport(appointment: PatientAppointment) {
-  const report = [
+  const reportLines = [
     "Healthko Medical Report",
     "",
     `Doctor: ${appointment.doctor.name}`,
@@ -169,8 +173,31 @@ function downloadMedicalReport(appointment: PatientAppointment) {
     "",
     "Prescription",
     appointment.prescription || "No prescription issued.",
-  ].join("\n");
-  const blob = new Blob([report], { type: "application/pdf" });
+  ];
+  const textStream = reportLines
+    .slice(0, 34)
+    .map((line, index) => `BT /F1 11 Tf 54 ${760 - index * 18} Td (${escapePdfText(line)}) Tj ET`)
+    .join("\n");
+  const objects = [
+    "<< /Type /Catalog /Pages 2 0 R >>",
+    "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+    "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>",
+    "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+    `<< /Length ${textStream.length} >>\nstream\n${textStream}\nendstream`,
+  ];
+  let pdf = "%PDF-1.4\n";
+  const offsets = [0];
+  objects.forEach((object, index) => {
+    offsets.push(pdf.length);
+    pdf += `${index + 1} 0 obj\n${object}\nendobj\n`;
+  });
+  const xrefOffset = pdf.length;
+  pdf += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n`;
+  offsets.slice(1).forEach((offset) => {
+    pdf += `${String(offset).padStart(10, "0")} 00000 n \n`;
+  });
+  pdf += `trailer << /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xrefOffset}\n%%EOF`;
+  const blob = new Blob([pdf], { type: "application/pdf" });
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
 
@@ -412,8 +439,8 @@ function DoctorProfileModal({
               <p className="mt-1 text-sm font-bold text-slate-500">{doctor.specialty}</p>
             </div>
           </div>
-          <button type="button" onClick={onClose} className="rounded-lg border border-slate-200 px-3 py-2 text-xs font-black text-slate-600">
-            Close
+          <button type="button" onClick={onClose} className="grid h-9 w-9 shrink-0 place-items-center rounded-lg border border-slate-200 text-sm font-black text-slate-600 hover:bg-slate-50" aria-label="Close doctor profile">
+            X
           </button>
         </div>
 
@@ -881,12 +908,22 @@ export default function PatientDashboardClient({ patient, doctors, initialModule
   const completedAppointments = appointments.filter((booking) => booking.status === "COMPLETED");
   const recentDoctorNames = Array.from(new Set(appointments.map((booking) => booking.doctor.name))).slice(0, 4);
   const patientAddress = [patient.address, patient.city, patient.state, patient.zipCode, patient.country].filter(Boolean).join(", ");
+  const patientMedicalSummary = {
+    height: patient.height || "Not recorded",
+    weight: patient.weight || "Not recorded",
+    bloodType: patient.bloodType || "Not recorded",
+    allergies: patient.allergies || "Not recorded",
+    conditions: patient.existingConditions || "Not recorded",
+    medications: patient.currentMedications || "Not recorded",
+    emergencyContact: [patient.emergencyContactName, patient.emergencyContactRelation, patient.emergencyContactPhone].filter(Boolean).join(" / ") || "Not recorded",
+  };
   const qrPayload = JSON.stringify({
     id: patient.id,
     name: `${patient.firstName} ${patient.lastName}`,
     dob: patient.dob,
     phone: patient.phone,
     email: patient.email,
+    medical: patientMedicalSummary,
     recentDoctors: recentDoctorNames,
   });
 
@@ -901,6 +938,7 @@ export default function PatientDashboardClient({ patient, doctors, initialModule
         name: `${patient.firstName} ${patient.lastName}`,
         detail: patient.email,
         meta: patient.emailVerified ? "Email verified" : "Email pending verification",
+        image: patient.image,
       }}
       connectionState={realtime.connectionState}
       notificationBell={
@@ -1160,6 +1198,13 @@ export default function PatientDashboardClient({ patient, doctors, initialModule
                 <div><dt className="text-xs font-black uppercase text-slate-400">Date of birth</dt><dd className="font-semibold text-slate-800">{patient.dob}</dd></div>
                 <div><dt className="text-xs font-black uppercase text-slate-400">Gender</dt><dd className="font-semibold text-slate-800">{patient.gender || "Not specified"}</dd></div>
                 <div className="md:col-span-2"><dt className="text-xs font-black uppercase text-slate-400">Address</dt><dd className="font-semibold text-slate-800">{patientAddress || "No address on file"}</dd></div>
+                <div><dt className="text-xs font-black uppercase text-slate-400">Height</dt><dd className="font-semibold text-slate-800">{patientMedicalSummary.height}</dd></div>
+                <div><dt className="text-xs font-black uppercase text-slate-400">Weight</dt><dd className="font-semibold text-slate-800">{patientMedicalSummary.weight}</dd></div>
+                <div><dt className="text-xs font-black uppercase text-slate-400">Blood type</dt><dd className="font-semibold text-slate-800">{patientMedicalSummary.bloodType}</dd></div>
+                <div><dt className="text-xs font-black uppercase text-slate-400">Allergies</dt><dd className="font-semibold text-slate-800">{patientMedicalSummary.allergies}</dd></div>
+                <div className="md:col-span-2"><dt className="text-xs font-black uppercase text-slate-400">Existing conditions</dt><dd className="font-semibold text-slate-800">{patientMedicalSummary.conditions}</dd></div>
+                <div className="md:col-span-2"><dt className="text-xs font-black uppercase text-slate-400">Current medications</dt><dd className="font-semibold text-slate-800">{patientMedicalSummary.medications}</dd></div>
+                <div className="md:col-span-2"><dt className="text-xs font-black uppercase text-slate-400">Emergency contact</dt><dd className="font-semibold text-slate-800">{patientMedicalSummary.emergencyContact}</dd></div>
               </dl>
             </section>
             <section className="rounded-xl border border-brand-teal/20 bg-brand-teal/5 p-5 xl:col-span-5">
@@ -1169,7 +1214,7 @@ export default function PatientDashboardClient({ patient, doctors, initialModule
                 <div>
                   <p className="text-sm font-black text-slate-950">Quick identity reference</p>
                   <p className="mt-2 text-xs font-semibold leading-relaxed text-slate-600">
-                    Encodes patient ID, name, DOB, contact, and recent care team references for fast verification.
+                    Encodes patient ID, name, DOB, contact, medical profile, and recent care team references for fast verification.
                   </p>
                 </div>
               </div>
@@ -1372,35 +1417,6 @@ export default function PatientDashboardClient({ patient, doctors, initialModule
                 onAnchorDateChange={setAppointmentCalendarAnchor}
                 onDateSelect={setSelectedCalendarDate}
               />
-
-              <section className="rounded-xl border border-slate-200 bg-white p-4">
-                <p className="text-[10px] font-black uppercase tracking-[0.2em] text-brand-teal">Smart Scheduling</p>
-                <h3 className="mt-1 text-base font-black text-slate-950">{selectedDoctor?.name || "Choose a doctor"}</h3>
-                <p className="mt-1 text-xs font-semibold text-slate-500">
-                  Suggestions use doctor availability and your current appointment windows before the server performs final conflict checks.
-                </p>
-                <div className="mt-4 space-y-2">
-                  {schedulingSuggestions.length ? schedulingSuggestions.map((slot) => (
-                    <button
-                      key={slot.toISOString()}
-                      type="button"
-                      onClick={() => {
-                        setAppointmentDate(toDateKey(slot));
-                        setAppointmentTime(toTimeValue(slot));
-                        setIsBookingOpen(true);
-                      }}
-                      className="flex w-full items-center justify-between gap-3 rounded-lg border border-slate-200 px-3 py-2 text-left text-xs font-bold text-slate-700 hover:border-brand-teal"
-                    >
-                      <span>{formatDateTime(slot)}</span>
-                      <span className="text-brand-teal">Use</span>
-                    </button>
-                  )) : (
-                    <p className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs font-semibold text-slate-500">
-                      No low-conflict suggestions found. Choose a doctor or open booking to pick a custom time.
-                    </p>
-                  )}
-                </div>
-              </section>
             </aside>
           </div>
         </section>
@@ -1902,7 +1918,7 @@ export default function PatientDashboardClient({ patient, doctors, initialModule
       )}
 
       {activeModule === "settings" && (
-        <PatientSettingsModule patient={patient} />
+        <PatientSettingsModule patient={patient} onToast={showToast} />
       )}
     </DashboardShell>
   );

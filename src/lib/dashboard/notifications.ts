@@ -71,11 +71,11 @@ export function notificationFromRealtimeEvent(event: RealtimeEvent, recipientRol
     });
   }
 
-  if (event.type === "doctor:availability-updated") {
+  if (event.type === "doctor:availability-updated" || event.type === "doctor:status-updated") {
     return createDashboardNotification({
       id: `${event.type}:${event.doctorId}:${Date.now()}`,
-      title: event.title || "Availability updated",
-      body: event.body || "Consultation availability changed.",
+      title: event.title || (event.type === "doctor:status-updated" ? "Doctor status updated" : "Availability updated"),
+      body: event.body || (event.type === "doctor:status-updated" ? "Doctor dashboard status changed." : "Consultation availability changed."),
       kind: "appointment",
     });
   }
