@@ -7,7 +7,7 @@ import { useRouter } from "next/navigation";
 
 export default function ResetPasswordPage() {
   const router = useRouter();
-  const supabase = createClient();
+  const [supabase, setSupabase] = useState<ReturnType<typeof createClient> | null>(null);
 
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
@@ -19,6 +19,14 @@ export default function ResetPasswordPage() {
 
   // Verify that the user has an active session (set by /auth/callback)
   useEffect(() => {
+    setSupabase(createClient());
+  }, []);
+
+  useEffect(() => {
+    if (!supabase) {
+      return;
+    }
+
     supabase.auth.getSession().then(({ data }) => {
       setSessionReady(!!data.session);
     });
@@ -38,6 +46,12 @@ export default function ResetPasswordPage() {
     }
 
     setLoading(true);
+
+    if (!supabase) {
+      setError("Secure session is still loading. Please try again in a moment.");
+      setLoading(false);
+      return;
+    }
 
     const { error: updateError } = await supabase.auth.updateUser({
       password,
