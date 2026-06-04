@@ -128,7 +128,9 @@ export async function getDoctorSession() {
   const session = decodeSession(token);
 
   if (!session) {
-    cookieStore.delete(COOKIE_NAME);
+    // NOTE: Cannot delete cookies here — this function is called from Server
+    // Components where cookie writes are forbidden. The expired/invalid cookie
+    // will be overwritten on next login or cleared by clearDoctorSession().
     return null;
   }
 
