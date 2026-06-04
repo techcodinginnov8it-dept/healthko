@@ -22,6 +22,8 @@ const nextConfig: NextConfig = {
         "farmer-celebrities-pond-binding.trycloudflare.com",
         "*.trycloudflare.com",
         "*.ngrok-free.dev",
+        "*.vercel.app",
+        "*.vercel.dev",
       ],
     },
   },
