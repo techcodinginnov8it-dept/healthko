@@ -229,15 +229,35 @@ async function verifySupabaseEmailOtp(email: string, otp: string) {
 
   const cookieStore = await cookies();
   const supabase = createSupabaseServerClient(cookieStore);
-  const { error } = await supabase.auth.verifyOtp({
-    email,
-    token: otp,
-    type: "email",
-  });
 
-  if (error) {
-    throw new Error(error.message || "Incorrect verification code.");
+  // We try different verification types to support different Supabase configurations
+  // ('magiclink' for signInWithOtp, 'signup' for signup verification, 'email' for unified verification)
+  const verificationTypes: ("magiclink" | "signup" | "email")[] = ["magiclink", "signup", "email"];
+  let lastError: any = null;
+
+  for (const type of verificationTypes) {
+    try {
+      console.log(`[verifySupabaseEmailOtp] Attempting OTP verification for ${email} with type '${type}'`);
+      const { error } = await supabase.auth.verifyOtp({
+        email,
+        token: otp,
+        type,
+      });
+
+      if (!error) {
+        console.log(`[verifySupabaseEmailOtp] OTP verification succeeded for ${email} with type '${type}'`);
+        return; // Succeeded!
+      }
+
+      console.warn(`[verifySupabaseEmailOtp] OTP verification failed with type '${type}':`, error.message);
+      lastError = error;
+    } catch (err: any) {
+      console.error(`[verifySupabaseEmailOtp] Exception during OTP verification with type '${type}':`, err);
+      lastError = err;
+    }
   }
+
+  throw new Error(lastError?.message || "Incorrect verification code.");
 }
 
 /**
