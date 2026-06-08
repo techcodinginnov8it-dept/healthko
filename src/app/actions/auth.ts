@@ -165,7 +165,6 @@ async function sendPatientSupabaseOtp({
     email,
     options: {
       shouldCreateUser: true,
-      emailRedirectTo: `${process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000"}/signin`,
       data: {
         first_name: firstName,
         otp_purpose: purpose,
