@@ -124,7 +124,7 @@ export default function ForgotPasswordClient() {
                 )}
                 
                 <p className="text-center text-xs text-slate-500">
-                  Didn't receive it?{" "}
+                  Didn&apos;t receive it?{" "}
                   <button
                     className="text-brand-teal hover:underline font-bold"
                     onClick={() => { setSubmitted(false); setError(null); setMockLink(null); }}
@@ -168,7 +168,7 @@ export default function ForgotPasswordClient() {
 
                 {/* Info note */}
                 <p className="text-[11px] text-slate-500 leading-relaxed">
-                  A reset link will be sent to this address if it matches a registered HealthKo account. Check your spam folder if you don't see it within a few minutes.
+                  A reset link will be sent to this address if it matches a registered HealthKo account. Check your spam folder if you don&apos;t see it within a few minutes.
                 </p>
 
                 {/* Submit */}

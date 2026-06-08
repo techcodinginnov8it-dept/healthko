@@ -192,10 +192,9 @@ async function issueEmailOtp({
   return { delivery: "email" as const };
 }
 
-function withOtpDeliveryHint(message: string, delivery: "email") {
+function withOtpDeliveryHint(message: string) {
   return message;
 }
-
 
 async function verifySupabaseEmailOtp(email: string, otp: string) {
   if (!process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY) {
@@ -205,10 +204,8 @@ async function verifySupabaseEmailOtp(email: string, otp: string) {
   const cookieStore = await cookies();
   const supabase = createSupabaseServerClient(cookieStore);
 
-  // We try different verification types to support different Supabase configurations
-  // ('magiclink' for signInWithOtp, 'signup' for signup verification, 'email' for unified verification)
   const verificationTypes: ("magiclink" | "signup" | "email")[] = ["magiclink", "signup", "email"];
-  let lastError: any = null;
+  let lastError: unknown = null;
 
   for (const type of verificationTypes) {
     try {
@@ -221,18 +218,19 @@ async function verifySupabaseEmailOtp(email: string, otp: string) {
 
       if (!error) {
         console.log(`[verifySupabaseEmailOtp] OTP verification succeeded for ${email} with type '${type}'`);
-        return; // Succeeded!
+        return;
       }
 
       console.warn(`[verifySupabaseEmailOtp] OTP verification failed with type '${type}':`, error.message);
       lastError = error;
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error(`[verifySupabaseEmailOtp] Exception during OTP verification with type '${type}':`, err);
       lastError = err;
     }
   }
 
-  throw new Error(lastError?.message || "Incorrect verification code.");
+  const message = lastError instanceof Error ? lastError.message : "Incorrect verification code.";
+  throw new Error(message);
 }
 
 /**
@@ -279,7 +277,7 @@ export async function requestPatientSignupOtp(data: PatientSignupPayload): Promi
     });
 
     createdPatient = { id: patient.id, email: patient.email, firstName: patient.firstName };
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.warn("Prisma signup failed, falling back to mock JSON database:", error);
     try {
       const existingPatient = mockDb.findPatientByEmail(email);
@@ -305,7 +303,7 @@ export async function requestPatientSignupOtp(data: PatientSignupPayload): Promi
 
       createdPatient = { id: patient.id, email: patient.email, firstName: patient.firstName };
       isMockDb = true;
-    } catch (mockErr: any) {
+    } catch (mockErr: unknown) {
       console.error("Signup Mock DB critical failure:", mockErr);
       return { success: false, error: "Failed to create patient account." };
     }
@@ -329,7 +327,7 @@ export async function requestPatientSignupOtp(data: PatientSignupPayload): Promi
         otpDelivery.delivery,
       ),
     };
-  } catch (otpError: any) {
+  } catch (otpError: unknown) {
     console.error("Supabase OTP send failed. Rolling back patient record creation...", otpError);
 
     // Rollback DB creation so user is not left in a half-created/orphaned state!
@@ -346,7 +344,7 @@ export async function requestPatientSignupOtp(data: PatientSignupPayload): Promi
     // Return the informative error message (e.g. "email rate limit exceeded") so the user knows what actually failed!
     return {
       success: false,
-      error: otpError.message || "We could not send the verification code. Please try again."
+      error: otpError instanceof Error ? otpError.message : "We could not send the verification code. Please try again."
     };
   }
 }
@@ -488,7 +486,7 @@ export async function requestPatientLoginOtp(data: PatientLoginPayload): Promise
       }
 
       validatedPatient = { email: patient.email, firstName: patient.firstName, emailVerified: patient.emailVerified };
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.warn("Prisma login request failed, falling back to mock database:", error);
       validatedPatient = await validateMockPatientLogin(data);
 
@@ -519,11 +517,11 @@ export async function requestPatientLoginOtp(data: PatientLoginPayload): Promise
       email: validatedPatient.email,
       message: withOtpDeliveryHint(message, otpDelivery.delivery),
     };
-  } catch (otpError: any) {
+  } catch (otpError: unknown) {
     console.error("Supabase login OTP send failed:", otpError);
     return {
       success: false,
-      error: otpError.message || "We could not send the verification code. Please try again."
+      error: otpError instanceof Error ? otpError.message : "We could not send the verification code. Please try again."
     };
   }
 }

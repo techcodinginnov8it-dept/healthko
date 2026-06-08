@@ -7,7 +7,7 @@ import { useRouter } from "next/navigation";
 
 export default function ResetPasswordPage() {
   const router = useRouter();
-  const [supabase, setSupabase] = useState<ReturnType<typeof createClient> | null>(null);
+  const [supabase] = useState(() => createClient());
 
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
@@ -19,14 +19,6 @@ export default function ResetPasswordPage() {
 
   // Verify that the user has an active session (set by /auth/callback)
   useEffect(() => {
-    setSupabase(createClient());
-  }, []);
-
-  useEffect(() => {
-    if (!supabase) {
-      return;
-    }
-
     supabase.auth.getSession().then(({ data }) => {
       setSessionReady(!!data.session);
     });
