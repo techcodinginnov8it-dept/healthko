@@ -184,45 +184,20 @@ async function issueEmailOtp({
   purpose: OtpPurpose;
   firstName?: string;
 }) {
-  try {
-    await sendPatientSupabaseOtp({
-      email,
-      purpose,
-      firstName,
-    });
-    return { delivery: "email" as const };
-  } catch (error: any) {
-    console.warn(`[Supabase OTP Failure] Failed to send OTP email to ${email}:`, error.message || error);
-    console.warn(`[Mock OTP Fallback] Falling back to local development code '123456' for ${email}`);
-    mockDb.createEmailOtp(email, "123456", purpose, new Date(Date.now() + 10 * 60 * 1000));
-    return { delivery: "mock" as const };
-  }
+  await sendPatientSupabaseOtp({
+    email,
+    purpose,
+    firstName,
+  });
+  return { delivery: "email" as const };
 }
 
-function withOtpDeliveryHint(message: string, delivery: "email" | "mock") {
-  if (delivery === "mock") {
-    return `${message} Local development code: 123456.`;
-  }
-
+function withOtpDeliveryHint(message: string, delivery: "email") {
   return message;
 }
 
 
 async function verifySupabaseEmailOtp(email: string, otp: string) {
-  // Check mock DB first for fallback OTPs (e.g. 123456)
-  const purposes: OtpPurpose[] = ["login_verify", "signup_verify"];
-  const matchingOtp = purposes
-    .map((purpose) => mockDb.findLatestOtp(email, purpose))
-    .find((record) => record?.otp === otp && new Date(record.expiresAt) > new Date());
-
-  if (matchingOtp || otp === "123456") {
-    if (matchingOtp) {
-      mockDb.markOtpAsUsed(matchingOtp.id);
-    }
-    console.log(`[verifySupabaseEmailOtp] verified OTP via mockDb fallback for ${email}`);
-    return;
-  }
-
   if (!process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY) {
     throw new Error("Incorrect verification code.");
   }
